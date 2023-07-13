@@ -1,8 +1,3 @@
-import pandas as pd
-import csv
-
-from tabulate import tabulate
-
 # GBIF Darwin Core (DwC) Export
 # Each line represents a column header in the dataset, followed by an educated guess about the data type
 
@@ -235,19 +230,30 @@ from tabulate import tabulate
 # 220: taxonRemarks - (string) Comments or notes about the taxon or name.
 
 import os
+import csv
 import pandas as pd
+import ratelim
+from geopy.geocoders import Nominatim
+from tabulate import tabulate
+import unicodedata
 
-class LocalityData:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.locality_df = None
-        self.output_file = 'locality_only.tsv'
-        self._load_data()
 
-    def _load_data(self):
-        if not os.path.exists(self.output_file):
-            df = pd.read_csv(self.file_path, sep='\t', low_memory=False)
-            self.locality_df = df[[
+
+class IslandFinder:
+    def __init__(self, locality_name_file, island_name_file):
+
+        self.abridged_filename = 'locality_only.tsv'
+
+        with open(island_name_file, 'r') as file:
+            self.island_names = [row for row in csv.reader(file)]
+
+        self._load_data(locality_name_file, self.abridged_filename)
+
+    def _load_data(self, original_file, abridged_file):
+        if not os.path.exists(abridged_file):
+            print(f"Creating abridged file with locality data only: {self.abridged_filename}")
+            df = pd.read_csv(original_file, sep='\t', low_memory=False)
+            self.df = df[[
                 'gbifID',
                 'locality',
                 'verbatimLocality',
@@ -265,69 +271,91 @@ class LocalityData:
                 'island',
                 'islandGroup'
             ]]
-            self.locality_df = self.locality_df.applymap(lambda x: x.lower() if isinstance(x, str) else x)
-            self.locality_df.insert(len(self.locality_df.columns), 'interpolated_island', '')
-            self.locality_df.to_csv(self.output_file, sep='\t', index=False)
+            self.df = self.df.applymap(lambda x: sanitize(x) if isinstance(x, str) else x)
+            self.df.insert(len(self.df.columns), 'interpolated_island', '')
+            self.df.to_csv(self.abridged_filename, sep='\t', index=False)
         else:
-            self.locality_df = pd.read_csv(self.output_file, sep='\t')
+            print(f"Loading previously created abdirged file: {self.abridged_filename}")
 
-    def get_locality_df(self):
-        return self.locality_df
+            self.df = pd.read_csv(self.abridged_filename, sep='\t')
 
-    def print_locality_data(self, num_lines=10):
-        headers = self.locality_df.columns.tolist()
+    def search_locality_and_interpolate_island(self):
+        for index, row in self.df.iterrows():
+            for island in self.island_names:
+                for synonym in island:
+                    if isinstance(row['locality'], str) and sanitize(synonym) in sanitize(row['locality']) or isinstance(
+                            row['verbatimLocality'], str) and sanitize(synonym) in sanitize(row['verbatimLocality']):
+                        self.df.loc[index, 'interpolated_island'] = island[0]
+                        break
+                else:
+                    continue
+                break
 
-        # Truncate long data and headers
-        pd.set_option('display.max_colwidth', 100)
+    def save_data(self):
+        not_missing_data = self.df[self.df['interpolated_island'].notnull()]
+        not_missing_data.to_csv('found.tsv', sep='\t', index=False)
+
+        missing_data = self.df[self.df['interpolated_island'].isnull()]
+        missing_data.to_csv('not_found.tsv', sep='\t', index=False)
+
+    def print_df(self, num_lines):
+        headers = self.interpolated_df.columns.tolist()
         truncated_headers = [header[:100] + '...' if len(header) > 100 else header for header in headers]
-
-        # Drop columns with no data in the printed lines
-        cols_to_drop = self.locality_df.columns[self.locality_df.head(num_lines).isna().all()].tolist()
-        df_to_print = self.locality_df.drop(cols_to_drop, axis=1)
-
-        # Format 'gbifID' column to avoid scientific notation
+        cols_to_drop = self.interpolated_df.columns[self.interpolated_df.head(num_lines).isna().all()].tolist()
+        df_to_print = self.interpolated_df.drop(cols_to_drop, axis=1)
         df_to_print['gbifID'] = df_to_print['gbifID'].astype(int).astype(str)
-
-        # Print column headers
         print(tabulate([truncated_headers], headers="keys", tablefmt="fancy_grid"))
-
-        # Print rows
         rows = df_to_print.head(num_lines).to_records(index=False)
         print(tabulate(rows, headers=truncated_headers, tablefmt="fancy_grid"))
 
+    def normalize_interpolated(self):
+        print("Normalizing the georeferenced strings")
+        for index, row in self.df.iterrows():
+            for island in self.island_names:
+                for synonym in island:
+                    if isinstance(row['interpolated_island'], str) and sanitize(synonym) in sanitize(row[
+                        'interpolated_island']):
+                        self.df.loc[index, 'interpolated_island'] = island[0]
 
-def search_locality_and_interpolate_island(locality_df, island_names_list):
-
-    # Initialize the 'interpolated_island' column in locality_df
-    for index, row in locality_df.iterrows():
-        for island in island_names_list:
-            for synonym in island:
-                if isinstance(row['locality'], str) and synonym.lower() in row['locality'].lower():
-                    locality_df.loc[index, 'interpolated_island'] = island[0]
-                    print(
-                        f"Found a match: synonym '{synonym}' found in locality: '{row['locality']}': maps to '{island[0]}'")
-                    break
-
-                elif isinstance(row['verbatimLocality'], str) and synonym.lower() in row['verbatimLocality'].lower():
-                    locality_df.loc[index, 'interpolated_island'] = island[0]
-                    print(
-                        f"Found a match: synonym '{synonym}' found in verbatimLocality: '{row['verbatimLocality']}': maps to '{island[0]}'")
-                    break
-
-            else:
-                continue  # continue if the inner loop wasn't broken (no match found)
-
-            break  # break the outer loop if the inner loop was broken (match found)
+    def geolocate_islands(self, geolocator, request_limit=10):
+        requests_made = 0
+        i = 0
+        while i < len(self.df) and requests_made < request_limit:
+            row = self.df.iloc[i]
+            if pd.isnull(row['interpolated_island']):
+                interpolated_island = get_location_by_coordinates(row['decimalLatitude'], row['decimalLongitude'],
+                                                                  geolocator)
+                self.df.at[i, 'interpolated_island'] = interpolated_island
+                requests_made += 1
+            i += 1
+        self.normalize_interpolated()
 
 
-locality_data = LocalityData('./Galapagos_data/input/0080905-230530130749713/verbatim.txt')
-island_names = []
-with open('island_synonyms.csv', 'r') as file:
-    reader = csv.reader(file)
-    island_names = [row for row in reader]
+@ratelim.greedy(1, 1)
+def get_location_by_coordinates(decimal_latitude, decimal_longitude, geolocator):
+    location = geolocator.reverse([decimal_latitude, decimal_longitude], exactly_one=True)
+    address = location.raw['address']
+    print(f"Got address {address} from {[decimal_latitude, decimal_longitude]}")
+    return sanitize(address.get('county', ''))
 
-# locality_data.print_locality_data(100)
+def sanitize(input_str):
+    nfkd_form = unicodedata.normalize('NFKD', input_str.lower())
+    only_ascii = nfkd_form.encode('ASCII', 'ignore')
+    return only_ascii.decode()
 
-interpolated_df = search_locality_and_interpolate_island(locality_data.locality_df,island_names)
-interpolated_df.to_csv('found_islands.tsv', sep='\t', index=False)
+def main():
+    geolocator = Nominatim(user_agent="geoapiExercises")
 
+    finder = IslandFinder('./Galapagos_data/input/0080905-230530130749713/verbatim.txt', 'island_synonyms.csv')
+    print("Checking locality strings for island matches...")
+
+    finder.search_locality_and_interpolate_island()
+    print("Geolocating [restricting to 10 localities for testing]...")
+
+    finder.geolocate_islands(geolocator,10)
+    print("Saving...")
+    finder.save_data()
+
+
+if __name__ == "__main__":
+    main()
