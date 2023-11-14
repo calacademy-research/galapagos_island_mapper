@@ -1,6 +1,7 @@
 import dataclasses
+import json
 import logging
-import osgeo.ogr
+import numbers
 import shapely
 
 from base import *
@@ -218,29 +219,30 @@ islands = [
 
 names = { island.name for island in islands }
 
-def recursive_yield_points(geo):
-	for subgeo in range(geo.GetGeometryCount()):
-		for subsubgeo in recursive_yield_points(geo.GetGeometryRef(subgeo)):
-			yield subsubgeo
-	if geo.GetPointCount() > 0:
-		# Convert from (x, y, z) to (lat, lon)
-		yield [ (geo.GetPoint(i)[1], geo.GetPoint(i)[0]) for i in range(geo.GetPointCount()) ]
+def recursive_yield_polygons(geo):
+	if not isinstance(geo, list): raise RuntimeError("Unexpected non-list when processing geometries")
+	if geo == []: return
+	ret = []
+	for subgeo in geo:
+		if len(subgeo) == 2 and isinstance(subgeo[0], numbers.Number) and isinstance(subgeo[1], numbers.Number):
+			ret.append((subgeo[1], subgeo[0]))
+		else:
+			for poly in recursive_yield_polygons(subgeo): yield poly
+	if ret != []: yield ret
 
 def init(osm_path):
 	logging.info("Loading island geometries")
-	osgeo.ogr.UseExceptions()
-	f = osgeo.ogr.Open(osm_path)
-	polygons = f.GetLayerByName("multipolygons")
+	with open(osm_path) as f: island_data = json.load(f)
+	polygons = {}
+	for feature in island_data["features"]:
+		osmid = int(feature["properties"].get("osm_id") or feature["properties"].get("osm_way_id"))
+		polygons[osmid] = recursive_yield_polygons(feature["geometry"]["coordinates"])
 	for island in islands:
 		for osmid in island.osmids:
-			polygons.SetAttributeFilter(f"osm_id = '{osmid}' or osm_way_id = '{osmid}'")
-			feats = [ feat for feat in polygons ]
-			assert(len(feats) <= 1)
-			if len(feats) == 1: feat = feats[0]
-			else:
+			if osmid not in polygons:
 				logging.warning(f"Missing geometry for OSM feature {osmid}.  Island assignments may be inaccurate.")
 				continue
-			for poly in recursive_yield_points(feat.GetGeometryRef()):
+			for poly in polygons[osmid]:
 				if len(poly) <= 2: continue
 				if poly[-1] != poly[0]: poly.append(poly[0])
 				island.geometry.append(shapely.Polygon(poly))
