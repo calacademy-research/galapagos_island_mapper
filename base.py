@@ -11,6 +11,12 @@ class Resolution:
 		self.resolver = resolver
 	def __repr__(self):
 		return f"{self.loc!s} ({self.conf})"
+	def downgrade(self):
+		if self.conf == MODERATE: self.conf = LOW
+		if self.conf == HIGH: self.conf = MODERATE
+	def upgrade(self):
+		if self.conf == MODERATE: self.conf = HIGH
+		if self.conf == LOW: self.conf = MODERATE
 
 # Shortcut for "we don't know"
 UNKNOWN = Resolution(None, LOW, None)

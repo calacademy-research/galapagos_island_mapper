@@ -84,7 +84,8 @@ class LocationProcessor:
 			self.rows += 1
 			results = self.resolve_consensus(row)
 			self.results.append([int(row["gbifID"])] + results)
-			print(f"{i}/{tot}: {results!r}")
+			print(f"\r{i}/{tot}", end="")
+		print()
 
 	def print_stats(self):
 		print(f"Overall: {self.rows} rows processed") #, {len(self.resolved)} resolved, {len(self.unresolved)} unresolved")
@@ -108,8 +109,8 @@ def test():
 
 def main(args):
 	logging.basicConfig(level=logging.DEBUG)
-	islands.init("galapagos.geojson")
 	test()
+	islands.init("galapagos.geojson")
 	data = pd.read_csv(args[1], sep="\t", dtype=str, na_filter=False)
 	print(f"Read {len(data)} rows")
 	processor = LocationProcessor()
