@@ -1,9 +1,3 @@
-#! /usr/bin/env python
-
-import logging
-import pandas as pd
-import sys
-
 from base import *
 import islands
 import latlon
@@ -26,8 +20,10 @@ class LocationProcessor:
 		self.stats = [ self.ResolverStat() for _ in self.resolvers ]
 		self.rows = 0
 		self.results = []
+		self.species = {}
+		self.observations = {}
 
-	# Try resolvers one at a time until one succeeds.  Suspended for now while we test.
+	# Try resolvers one at a time until one succeeds.
 	def resolve_cascading(self, row):
 		for (resolver_id, resolver) in enumerate(self.resolvers):
 			stats = self.stats[resolver_id]
@@ -78,13 +74,25 @@ class LocationProcessor:
 					results.append(normal)
 		return results
 
+	# Use the highest-confidence resolution after applying heuristics about their likely trustworthiness
+	def resolve_priority(self, row):
+		raise NotImplementedError()
+
 	def process(self, df):
 		tot = len(df)
 		for (i, row) in df.iterrows():
 			self.rows += 1
 			results = self.resolve_consensus(row)
 			self.results.append([int(row["gbifID"])] + results)
-			print(f"\r{i}/{tot}", end="")
+			species = row["species"] or row["genus"]
+			for island in results:
+				if island == "-": continue
+				k = (species, island)
+				self.observations.setdefault(k, 0)
+				self.observations[k] += 1
+				self.species.setdefault(species, 0)
+				self.species[species] += 1
+			if i % 100 == 0: print(f"\r{i}/{tot}", end="")
 		print()
 
 	def print_stats(self):
@@ -94,35 +102,18 @@ class LocationProcessor:
 			print(f"{name} resolver: {stats.processed} processed, {stats.identified} identified, {stats.excluded} excluded, "
 				f"{stats.unknown} unknown, {len(stats.errors)} errors")
 
+	def print_observations(self):
+		island_names = sorted(islands.names)
+		top_species = sorted((spec for (spec, count) in self.species.items() if count >= 100), reverse=True)
+		print("," + ",".join(island_names))
+		for species in top_species:
+			print(species, end="")
+			for island in island_names:
+				print("," + str(self.observations.get((species, island), 0)), end="")
+			print()
+
 	def errors(self):
 		for (resolver_id, stats) in enumerate(self.stats):
 			name = self.resolvers[resolver_id].name
 			for (row, msg) in stats.errors:
 				yield (name, msg, row)
-
-def test():
-	ok = True
-	for mod in [latlon, name]: ok = mod.test() and ok
-	if not ok:
-		print("Tests failed")
-		exit(1)
-
-def main(args):
-	logging.basicConfig(level=logging.DEBUG)
-	test()
-	islands.init("galapagos.geojson")
-	data = pd.read_csv(args[1], sep="\t", dtype=str, na_filter=False)
-	print(f"Read {len(data)} rows")
-	processor = LocationProcessor()
-	processor.process(data)
-	print("Writing out results...")
-	pd.DataFrame(processor.results, columns=["gbifID"] + [ resolver.name for resolver in processor.resolvers ]).to_csv("results.csv", sep="\t", index=False)
-	#pd.DataFrame(processor.resolved, columns=["gbifID", "loc"]).to_csv("resolved.csv", sep="\t", index=False)
-	#pd.DataFrame(processor.unresolved).to_csv("unresolved.csv", sep="\t", index=False)
-	#pd.DataFrame(processor.excluded).to_csv("excluded.csv", sep="\t", index=False)
-	with open("errors.txt", "w") as out:
-		for (resolver, msg, row) in processor.errors():
-			out.write(f"{resolver}: {msg} for row:\n{row}\n\n")
-	processor.print_stats()
-
-if __name__ == "__main__": main(sys.argv)
