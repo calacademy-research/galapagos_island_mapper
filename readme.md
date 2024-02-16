@@ -8,6 +8,6 @@ For analyzing observations of species in the Galapagos from [GBIF](https://www.g
 
 ## Run
 
-You'll need a dump of Galapagos data from GBIF first.
+You'll need a dump of Galapagos data from GBIF first.  Edit `config.ini` if necessary to point at the desired data file.
 
-    ./analyze.sh data/locality_only.tsv
+    ./analyze.sh

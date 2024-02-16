@@ -1,6 +1,8 @@
 #! /usr/bin/env python
 
+import configparser
 import logging
+import os.path
 import pandas as pd
 import sys
 
@@ -18,9 +20,13 @@ def test():
 
 def main(args):
 	logging.basicConfig(level=logging.DEBUG)
+	config = configparser.ConfigParser()
+	conffile = args[1] if len(args) > 1 else "config.ini"
+	if not os.path.isfile(conffile): raise RuntimeError(f"Can't open configuration file {conffile!r}")
+	config.read(conffile)
 	test()
-	islands.init("data/galapagos.geojson")
-	data = pd.read_csv(args[1], sep="\t", quoting=3, dtype=str, na_filter=False)
+	islands.init(config.get("sources", "geometry"))
+	data = pd.read_csv(config.get("sources", "gbif"), sep="\t", quoting=3, dtype=str, na_filter=False)
 	print(f"Read {len(data)} rows")
 	resolver = processor.LocationProcessor()
 	resolver.process(data)
