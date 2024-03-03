@@ -10,7 +10,13 @@ class Resolution:
 		self.conf = confidence
 		self.resolver = resolver
 	def __repr__(self):
-		return f"{self.loc!s} ({self.conf})"
+		return f"{self.loc!s} ({self.resolver}: {self.conf})"
+	def fields(self):
+		return {
+			"island": self.loc,
+			"confidence": self.conf,
+			"resolver": self.resolver
+		}
 	def downgrade(self):
 		if self.conf == MODERATE: self.conf = LOW
 		if self.conf == HIGH: self.conf = MODERATE
@@ -23,5 +29,5 @@ UNKNOWN = Resolution(None, LOW, None)
 
 class Resolver:
 	name = "base"
-	def resolve(self, _):
-		return UNKNOWN
+	def resolve(self, row):
+		return [UNKNOWN]

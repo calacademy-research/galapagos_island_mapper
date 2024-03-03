@@ -1,9 +1,10 @@
 #! /usr/bin/env python
 
 import configparser
+import csv
+import json
 import logging
 import os.path
-import pandas as pd
 import sys
 
 import islands
@@ -21,23 +22,22 @@ def test():
 def main(args):
 	logging.basicConfig(level=logging.DEBUG)
 	config = configparser.ConfigParser()
-	conffile = args[1] if len(args) > 1 else "config.ini"
+	conffile = "config.ini"
 	if not os.path.isfile(conffile): raise RuntimeError(f"Can't open configuration file {conffile!r}")
 	config.read(conffile)
 	test()
-	islands.init(config.get("sources", "geometry"))
-	data = pd.read_csv(config.get("sources", "gbif"), sep="\t", quoting=3, dtype=str, na_filter=False)
-	print(f"Read {len(data)} rows")
+	islands.init(config.get("files", "geometry"))
+	datafile = args[1] if len(args) > 1 else config.get("files", "gbif")
+	with open(datafile) as inf: data = list(csv.DictReader(inf, delimiter="\t"))
+	print(f"Read {len(data)} input rows from f{datafile}")
 	resolver = processor.LocationProcessor()
 	resolver.process(data)
 	print("Writing out results...")
-	pd.DataFrame(resolver.results, columns=["gbifID"] + [ resolver.name for resolver in resolver.resolvers ]).to_csv("results.csv", sep="\t", index=False)
-	#pd.DataFrame(resolver.resolved, columns=["gbifID", "loc"]).to_csv("resolved.csv", sep="\t", index=False)
-	#pd.DataFrame(resolver.unresolved).to_csv("unresolved.csv", sep="\t", index=False)
-	#pd.DataFrame(resolver.excluded).to_csv("excluded.csv", sep="\t", index=False)
+	results = [ { "gbifID": k, "resolutions": [ r.fields() for r in v ] } for (k, v) in resolver.results.items() ]
+	with open(config.get("files", "results"), "w") as outf: json.dump(results, outf)
 	with open("errors.txt", "w") as out:
-		for (resolver, msg, row) in resolver.errors():
-			out.write(f"{resolver}: {msg} for row:\n{row}\n\n")
+		for (name, msg, row) in resolver.errors():
+			out.write(f"{name}: {msg} for row:\n{row}\n\n")
 	resolver.print_stats()
 
 if __name__ == "__main__": main(sys.argv)

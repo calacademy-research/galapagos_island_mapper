@@ -8,8 +8,14 @@ import shapely
 from base import *
 import islands
 
-# TODO We should probably consider error ranges on coordinate values
 class LatLonResolver(Resolver):
+	"""Resolve observations to island names based on latitude and longitude.
+
+	Aside from the process of parsing coordinates, this resolver is very cut-and-dried.  We apply a margin of 0.02 degrees around
+	each island, and any point falling within the island or that margin is treated as occurring on the island.  If a point is in the
+	intersection of two margins, we return both islands.
+	"""
+
 	name = "latlon"
 	precision = 3
 	min = (-1.70, -92.30)
@@ -172,30 +178,29 @@ class LatLonResolver(Resolver):
 		point = shapely.Point(lat, lon)
 		candidates = set()
 		for (name, poly) in self.polygons.items():
+			if poly.ground.contains(point): return [Resolution(name, HIGH, self.name)]
 			if poly.buffer.contains(point): candidates.add(name)
-		if len(candidates) == 0: return None
-		if len(candidates) == 1: return candidates.pop()
+		if len(candidates) == 0: return [Resolution(None, HIGH, self.name)]
+		return [ Resolution(cand, MODERATE, self.name) for cand in candidates ]
 
-		# The point is in the buffer zones of multiple candidate islands.  Return the one whose land area it is closest to.
-		(min, argmin) = (0, None)
-		for candidate in candidates:
-			dist = shapely.distance(point, self.polygons[candidate].ground)
-			if argmin is None or dist < min: (min, argmin) = (dist, candidate)
-		return argmin
+		# Alternately, we could return the island that the point is closest to.
+		#(min, argmin) = (0, None)
+		#for candidate in candidates:
+		#	dist = shapely.distance(point, self.polygons[candidate].ground)
+		#	if argmin is None or dist < min: (min, argmin) = (dist, candidate)
+		#return argmin
 
 	def resolve(self, row):
 		coords = self.find_coordinates(row)
-		if coords is None: return UNKNOWN
+		if coords is None: return []
 		(lat, lon) = coords
 		if (
 			lat < self.min[0] or
 			lon < self.min[1] or
 			lat > self.max[0] or
 			lon > self.max[1]
-		): return Resolution(None, HIGH, self.name)
-		loc = self.query(round(lat, self.precision), round(lon, self.precision))
-		if loc is None: return Resolution(None, HIGH, self.name)
-		return Resolution(loc, HIGH, self.name)
+		): return [Resolution(None, HIGH, self.name)]
+		return self.query(round(lat, self.precision), round(lon, self.precision))
 
 latlon_tests = [
 	('s1°39′ w89°20′', (-1.65, -89.33333333333333)),

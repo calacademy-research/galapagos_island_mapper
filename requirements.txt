@@ -1,4 +1,3 @@
-pandas
 shapely
 parsimonious
 levenshtein
