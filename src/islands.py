@@ -136,7 +136,7 @@ islands = [
 	Island(
 		name = "santa cruz",
 		osmids = [2129845],
-		aliases = {"indefatigable", "indefagitable"},
+		aliases = {"indefatigable", "indefagitable", "puerto ayora"},
 	),
 	Island(
 		name = "santa fe",
@@ -146,7 +146,7 @@ islands = [
 	Island(
 		name = "santiago",
 		osmids = [2129890],
-		aliases = {"san salvador", "james"},
+		aliases = {"san salvador", "james", "sombrero chino"},
 	),
 	Island(
 		name = "seymour",

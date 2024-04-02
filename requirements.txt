@@ -1,3 +1,4 @@
-shapely
-parsimonious
 levenshtein
+pandas
+parsimonious
+shapely

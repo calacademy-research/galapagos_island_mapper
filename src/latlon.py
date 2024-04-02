@@ -1,5 +1,4 @@
 import functools
-import geopy.geocoders
 import parsimonious.grammar
 import parsimonious.nodes
 import re
@@ -93,7 +92,6 @@ class LatLonResolver(Resolver):
 		def visit_latlon(self, node, children): return (children[0][0][0], children[0][0][4])
 
 	def __init__(self):
-		self.nominatim = geopy.geocoders.Nominatim(user_agent="Cal Academy Location Resolver")
 		self.coord_grammar = parsimonious.grammar.Grammar(r"""
 			ws = ~"\s*"
 			whole = ~"\d+"

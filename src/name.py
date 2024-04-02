@@ -55,7 +55,7 @@ class ScoreMap:
 class NameResolver(Resolver):
 	"""Resolve observations to islands based on island names in location fields.
 
-	This resolver pulls out the `name_columes` listed below and splits each one into "phrases", then searches for island names in
+	This resolver pulls out the `name_columns` listed below and splits each one into "phrases", then searches for island names in
 	each phrase.  Using some heuristics like the presence of certain prepositions, we guess at whether each occurrences is the island
 	name where the observation occurred, or just a false positive (such as the name of a non-island feature, or the name of a nearby
 	island to help find the intended one).
@@ -65,7 +65,8 @@ class NameResolver(Resolver):
 	name_columns = ["locality", "verbatimLocality", "island"]
 	island_words = ["island", "islet", "isla", "isl", "is", "id", "i", "roca"]
 	# TODO Consider handling "between ... and ..."
-	suspicious_prepositions = ["off", "also", "by", "near"]
+	suspicious_prepositions = {"off", "also", "by", "near"}
+	place_modifiers = {"bay", "punta", "point", "bahia", "playa", "volcano", "volcan", "barrio", "cerro", "canal", "harbor"}
 
 	def __init__(self):
 		# List of island names and aliases, split into words
@@ -95,7 +96,9 @@ class NameResolver(Resolver):
 		while i < len(words):
 			match = False
 			for name in self.name_parts:
-				distance = levenshtein.distance(" ".join(words[i:i + len(name)]), " ".join(name))
+				candidate = " ".join(words[i:i + len(name)])
+				if candidate in self.place_modifiers: continue
+				distance = levenshtein.distance(candidate, " ".join(name))
 				# We've special-cased a couple common distance-2 misspellings in islands.py as well.
 				if distance <= 1:
 					if occurrences != []:
@@ -113,8 +116,12 @@ class NameResolver(Resolver):
 		return occurrences
 
 	def score_occurrence(self, prefix, suffix):
-		if len(prefix) > 0 and prefix[-1] in self.island_words: prefix = []
-		if len(suffix) > 0 and suffix[0] in self.island_words: suffix = []
+		if len(prefix) > 0:
+			if prefix[-1] in self.island_words: prefix = []
+			elif prefix[-1] in self.place_modifiers: return 0
+		if len(suffix) > 0:
+			if suffix[0] in self.island_words: suffix = []
+			elif suffix[0] in self.place_modifiers: return 0
 
 		if prefix == [] and suffix == []: return 8
 		for word in prefix:
@@ -138,7 +145,7 @@ class NameResolver(Resolver):
 				phrase_results = ScoreMap()
 				for (island, prefix, suffix, adjustment) in self.parse_phrase(phrase):
 					score = max(0, self.score_occurrence(prefix, suffix) + adjustment)
-					phrase_results.add(island, score)
+					if score > 0: phrase_results.add(island, score)
 				if len(phrase_results) > 1: phrase_results.decall()
 				col_results.merge(phrase_results)
 			results[col] = col_results
