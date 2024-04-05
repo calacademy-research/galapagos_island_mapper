@@ -11,7 +11,7 @@ from base import *
 import islands
 import latlon
 import name
-import processor
+import process
 
 def test():
 	ok = True
@@ -31,25 +31,29 @@ def main(args):
 	config.read(conffile)
 	test()
 	islands.init(config.get("files", "geometry"))
+	stats = process.ResolverStat.create()
+	resolver = process.LocationProcessor()
+	chooser = process.Prioritizer()
 
 	# Read and process data
 	print("Reading GBIF")
 	datafile = args[1] if len(args) > 1 else config.get("files", "gbif")
-	data = pandas.read_csv(datafile, sep="\t", quoting=3, dtype=str, na_filter=False)
-	print(f"Read {len(data)} input rows from {datafile}")
-	stats = processor.ResolverStat.create()
-	resolver = processor.LocationProcessor()
-	chooser = processor.Prioritizer()
+	data = {}
+	for (_, row) in pandas.read_csv(datafile, sep="\t", quoting=3, dtype=str, na_filter=False).iterrows():
+		data[row["gbifID"]] = row
 	tot = len(data)
 	processed = 0
+	resolved = 0
 	results = []
-	for (_, row) in data.iterrows():
+	print(f"Read {len(data)} rows from {datafile}")
+	for row in data.values():
 		res = resolver.resolve(row, stats)
-		best = chooser.choose(row, res, stats).loc or "-"
+		best = chooser.choose(row, res, stats)
+		if best != UNKNOWN: resolved += 1
 		best_by_resolver = chooser.best_by_resolver(res)
 		name_best = best_by_resolver.get("name", UNKNOWN).loc or "-"
 		latlon_best = best_by_resolver.get("latlon", UNKNOWN).loc or "-"
-		results.append([int(row["gbifID"]), name_best, latlon_best, best])
+		results.append([int(row["gbifID"]), name_best, latlon_best, best.loc or "-"])
 		processed += 1
 		if processed % 100 == 0: print(f"\r{processed}/{tot}", end="")
 	print()
@@ -63,7 +67,7 @@ def main(args):
 		for stat in stats.values():
 			for (row, msg) in stat.errors:
 				out.write(f"{stat.name}: {msg} for row:\n{row}\n\n")
-	print(f"Overall: {processed} rows processed")
+	print(f"Overall: {processed} rows processed, {resolved} resolved")
 	for stat in stats.values(): stat.print()
 	duration = (datetime.datetime.now() - starttime).total_seconds()
 	print(f"Entire run took {int(duration / 60)} minutes, {int(duration % 60)} seconds")

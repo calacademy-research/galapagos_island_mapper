@@ -58,11 +58,11 @@ class NameResolver(Resolver):
 	This resolver pulls out the `name_columns` listed below and splits each one into "phrases", then searches for island names in
 	each phrase.  Using some heuristics like the presence of certain prepositions, we guess at whether each occurrences is the island
 	name where the observation occurred, or just a false positive (such as the name of a non-island feature, or the name of a nearby
-	island to help find the intended one).
+	island to help find the intended one).  The first column that matches a name is returned.
 	"""
 
 	name = "name"
-	name_columns = ["locality", "verbatimLocality", "island"]
+	name_columns = {"island": +1, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1}
 	island_words = ["island", "islet", "isla", "isl", "is", "id", "i", "roca"]
 	# TODO Consider handling "between ... and ..."
 	suspicious_prepositions = {"off", "also", "by", "near"}
@@ -136,8 +136,7 @@ class NameResolver(Resolver):
 			yield part.strip()
 
 	def resolve(self, row):
-		results = {}
-		for col in self.name_columns:
+		for (col, adj) in self.name_columns.items():
 			val = row.get(col, "")
 			if val == "": continue
 			col_results = ScoreMap()
@@ -148,13 +147,11 @@ class NameResolver(Resolver):
 					if score > 0: phrase_results.add(island, score)
 				if len(phrase_results) > 1: phrase_results.decall()
 				col_results.merge(phrase_results)
-			results[col] = col_results
-		if "island" in results: results["island"].incall()
-		all_results = ScoreMap()
-		for res in results.values(): all_results.merge(res)
-		if len(all_results) == 0: return []
-		all_results.keep_best()
-		return all_results.resolutions()
+			if len(col_results) > 0:
+				col_results.keep_best()
+				col_results.incall(adj)
+				return col_results.resolutions()
+		return []
 
 name_tests = [
 	(
