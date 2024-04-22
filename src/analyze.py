@@ -34,6 +34,7 @@ def main(args):
 	stats = process.ResolverStat.create()
 	resolver = process.LocationProcessor()
 	chooser = process.Prioritizer()
+	mapper = process.ObservationMapper()
 
 	# Read and process data
 	print("Reading GBIF")
@@ -47,12 +48,14 @@ def main(args):
 	results = []
 	print(f"Read {len(data)} rows from {datafile}")
 	for row in data.values():
+		if not mapper.should_include(row): continue
 		res = resolver.resolve(row, stats)
 		best = chooser.choose(row, res, stats)
 		if best != UNKNOWN: resolved += 1
 		best_by_resolver = chooser.best_by_resolver(res)
 		name_best = best_by_resolver.get("name", UNKNOWN).loc or "-"
 		latlon_best = best_by_resolver.get("latlon", UNKNOWN).loc or "-"
+		if best.loc is not None: mapper.add(row, best.loc)
 		results.append([int(row["gbifID"]), name_best, latlon_best, best.loc or "-"])
 		processed += 1
 		if processed % 100 == 0: print(f"\r{processed}/{tot}", end="")
@@ -69,6 +72,7 @@ def main(args):
 				out.write(f"{stat.name}: {msg} for row:\n{row}\n\n")
 	print(f"Overall: {processed} rows processed, {resolved} resolved")
 	for stat in stats.values(): stat.print()
+	mapper.summarize()
 	duration = (datetime.datetime.now() - starttime).total_seconds()
 	print(f"Entire run took {int(duration / 60)} minutes, {int(duration % 60)} seconds")
 

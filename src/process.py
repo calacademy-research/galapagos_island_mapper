@@ -119,3 +119,31 @@ class Prioritizer:
 				else:
 					stat.agreements += 1
 		return ret
+
+class ObservationMapper:
+	"""Builds a table of species observed on each island for taxa of particular interest.
+
+	This code is currently disabled while we work on improving the mapper.  Eventually, it will compile the ultimate product of this
+	project -- a table of bird species (or any other class of interest) observed on each island.
+	"""
+
+	classes_of_interest = {"aves"}
+
+	def __init__(self):
+		self.observations = {}
+
+	def should_include(self, row):
+		return True
+		return row.get("class", "").casefold() in self.classes_of_interest
+
+	def add(self, row, island):
+		return
+		if not self.should_include(row): return
+		species = row.get("species", "")
+		if species == "": return
+		self.observations.setdefault((species.casefold(), island), set()).add(row["gbifID"])
+
+	def summarize(self):
+		return
+		for ((species, island), ids) in self.observations.items():
+			print(f"{species}, {island}: {len(ids)}")
