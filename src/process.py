@@ -58,24 +58,25 @@ class Prioritizer:
 	example, coordinates are much less likely to be the primary observation before GPS was invented, so we deprioritize coordinate-
 	based resolutions before 1980.
 	"""
+
 	conf_val = {LOW: 0, MODERATE: 1, HIGH: 2}
 	resolver_names = [ resolver.name for resolver in RESOLVERS ]
 
-	def best_resolution(self, res):
-		if len(res) == 0: return UNKNOWN
-		ret = res[0]
-		for candidate in res[1:]:
-			if self.conf_val[candidate.conf] > self.conf_val[ret.conf]: ret = candidate
+	def best_resolution(self, resolutions):
+		if len(resolutions) == 0: return UNKNOWN
+		ret = resolutions[0]
+		for res in resolutions[1:]:
+			if self.conf_val[res.conf] > self.conf_val[ret.conf]: ret = res
 		return ret
 
 	def best_by_resolver(self, resolutions):
-		all_by_resolver = {}
+		ret = {}
 		for res in resolutions:
-			all_by_resolver.setdefault(res.resolver, []).append(res)
-		best_by_resolver = {}
-		for (resolver, res) in all_by_resolver.items():
-			best_by_resolver[resolver] = self.best_resolution(res)
-		return best_by_resolver
+			if res.resolver not in ret: ret[res.resolver] = res
+			else:
+				existing = ret[res.resolver]
+				if self.conf_val[res.conf] > self.conf_val[existing.conf]: ret[res.resolver] = res
+		return ret
 
 	def choose(self, row, resolutions, stats):
 		if len(resolutions) == 0: return UNKNOWN
@@ -104,11 +105,20 @@ class Prioritizer:
 
 		# Otherwise, return the highest-confidence resolution available.
 		if ret is None:
-			if row["year"] != "" and int(row["year"]) < 1980 and "name" in best_by_resolver:
+			# Special case: points near Española may belong to Isla Gardner de Española and be mislabeled as belonging to Isla Gardner de
+			# Floreana.  We consider this island to be part of Española.
+			if best_by_resolver.get("latlon", UNKNOWN).loc == "espanola" and best_by_resolver.get("name", UNKNOWN).loc == "gardner":
+				ret = best_by_resolver["latlon"]
+			# Before GPS was widely available, lat/lon are much more likely to be derived values.
+			elif row["year"] != "" and int(row["year"]) < 1980 and "name" in best_by_resolver:
 				ret = best_by_resolver["name"]
+			# iNaturalist is expected to have good GPS-based lat/lon values.
+			elif row["publisher"] == "iNaturalist.org" and "latlon" in best_by_resolver:
+				ret = best_by_resolver["latlon"]
 
 		if ret is None: ret = self.best_resolution(resolutions)
 
+		# Update statistics and return
 		for resolver in self.resolver_names:
 			if resolver in all_by_resolver:
 				stat = stats[resolver]

@@ -69,7 +69,7 @@ islands = [
 	Island(
 		name = "espanola",
 		# Warning!  Order matters in this list, because this island coastline is built from a series of fragments that must be in order.
-		osmids = [992208855, 34159403, 992137192, 992137189, 992137188, 992208859, 992208854, 992208856],
+		osmids = [992208855, 34159403, 992137192, 992137189, 992137188, 992208859, 992208854, 992208856, 34159728],
 		aliases = {"hood"},
 	),
 	Island(
@@ -83,6 +83,12 @@ islands = [
 		aliases = {"charles", "santa maria"},
 	),
 	Island(
+		# NOTE: There are two Gardner Islands in the Galapagos: one just east of Floreana and one just north of Española.
+		# Unfortunately, there is no standard way of distinguishing these from each other.  Often you will see one of the nearby islands
+		# mentioned in conjunction with Gardner to disambiguate, but this is not easy to pull out algorithmically.  The lat/lon resolver
+		# will only assign points located near Gardner de Floreana to "Gardner", but the name-based resolver will also make this
+		# assignment for points mentioning Gardner de Española.  Currently, we deal with this half-heartedly by deprioritizing name-
+		# based resolutions for islands that the lat/lon resolver places near Española.
 		name = "gardner",
 		osmids = [5113388],
 	),
