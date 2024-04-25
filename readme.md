@@ -11,3 +11,7 @@ For analyzing observations of species in the Galapagos from [GBIF](https://www.g
 You'll need a dump of Galapagos data from GBIF first.  Edit `config.ini` if necessary to point at the desired data file.
 
     ./analyze.sh
+
+## Architecture
+
+![doc/architecture.svg]

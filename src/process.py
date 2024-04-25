@@ -90,7 +90,7 @@ class Prioritizer:
 		island_resolvers = {}
 		for res in resolutions:
 			all_by_resolver.setdefault(res.resolver, []).append(res)
-			island_resolvers.setdefault(res.loc, set()).add(res.resolver)
+			if res.loc is not None: island_resolvers.setdefault(res.loc, set()).add(res.resolver)
 		for (resolver, res) in all_by_resolver.items():
 			best_by_resolver[resolver] = self.best_resolution(res)
 		ret = None
