@@ -14,4 +14,4 @@ You'll need a dump of Galapagos data from GBIF first.  Edit `config.ini` if nece
 
 ## Architecture
 
-![doc/architecture.svg]
+![Architecture diagram](doc/architecture.svg)
