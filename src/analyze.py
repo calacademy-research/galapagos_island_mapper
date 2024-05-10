@@ -61,14 +61,14 @@ def main(args):
 		name_best = best_by_resolver.get("name", UNKNOWN).loc or "-"
 		latlon_best = best_by_resolver.get("latlon", UNKNOWN).loc or "-"
 		if best.loc is not None: mapper.add(row, best.loc)
-		results.append([int(row["gbifID"]), name_best, latlon_best, best.loc or "-"])
+		results.append([int(row["gbifID"]), name_best, latlon_best, best.loc or "-", taxonomy.most_specific_taxon(row) or "-"])
 		if processed % 100 == 0: print(f"\r{processed}/{tot}", end="")
 	print()
 
 	# Write results
 	print("Writing out results")
 	#results = [ { "gbifID": k, "resolutions": [ r.fields() for r in v ] } for (k, v) in resolver.results.items() ] # JSON
-	header = ["gbifID", "name", "latlon", "best"]
+	header = ["gbifID", "name", "latlon", "best", "species"]
 	pandas.DataFrame(results, columns=header).to_csv(config.get("output", "results"), sep="\t", index=False)
 	with open(config.get("output", "errors"), "w") as out:
 		for stat in stats.values():

@@ -28,6 +28,14 @@ synonyms = {
 	"Oceanodroma microsoma": "Hydrobates microsoma",
 }
 
+def most_specific_taxon(row):
+	for taxon in ["species", "genus", "family", "order", "class"]:
+		if row.get(taxon) is not None and row[taxon] != "":
+			ret = row[taxon]
+			if taxon == "species" and ret in synonyms: ret = synonyms[ret]
+			return ret
+	return None
+
 class TaxonomicDatabase:
 	def __init__(self, file):
 		self.tree = xml.etree.ElementTree.parse(file).getroot()[0]
