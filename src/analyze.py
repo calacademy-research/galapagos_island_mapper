@@ -51,9 +51,9 @@ def main(args):
 	print(f"Read {len(data)} rows from {datafile}")
 	for row in data.values():
 		processed += 1
-		if not mapper.should_include(row):
-			skipped += 1
-			continue
+		#if not mapper.should_include(row):
+		#	skipped += 1
+		#	continue
 		res = resolver.resolve(row, stats)
 		best = chooser.choose(row, res, stats)
 		if best != UNKNOWN: resolved += 1
