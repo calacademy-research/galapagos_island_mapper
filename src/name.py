@@ -65,7 +65,7 @@ class NameResolver(Resolver):
 	name_columns = {"island": +1, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1}
 	island_words = ["island", "islet", "isla", "isl", "is", "id", "i", "roca"]
 	# TODO Consider handling "between ... and ..."
-	suspicious_prepositions = {"off", "also", "by", "near"}
+	suspicious_prepositions = {"off", "also", "by", "near", "toward", "to"}
 	place_modifiers = {"bay", "punta", "point", "bahia", "playa", "beach", "volcano", "volcan", "barrio", "cerro", "canal", "harbor"}
 
 	def __init__(self):
@@ -135,6 +135,12 @@ class NameResolver(Resolver):
 			if part == "": continue
 			yield part.strip()
 
+	def special_cases(self, island, prefix, suffix):
+		# Darwin Research Station is on Santa Cruz Island
+		if island == "darwin" and "station" in suffix: return ("santa cruz", 2)
+		#if island == "santa cruz": return -2
+		return (None, 0)
+
 	def resolve(self, row):
 		for (col, adj) in self.name_columns.items():
 			val = row.get(col, "")
@@ -143,7 +149,10 @@ class NameResolver(Resolver):
 			for phrase in self.split_phrases(normalize(val)):
 				phrase_results = ScoreMap()
 				for (island, prefix, suffix, adjustment) in self.parse_phrase(phrase):
-					score = max(0, self.score_occurrence(prefix, suffix) + adjustment)
+					score = self.score_occurrence(prefix, suffix) + adjustment
+					(island_override, score_adj) = self.special_cases(island, prefix, suffix)
+					score += score_adj
+					if island_override is not None: island = island_override
 					#print(f"({prefix}, {island}, {suffix}) -> {score}")
 					if score > 0: phrase_results.add(island, score)
 				if len(phrase_results) > 1: phrase_results.decall()
@@ -321,7 +330,7 @@ name_tests = [
 			"verbatimLocality": "",
 			"island": "",
 		},
-		{"santa cruz"}
+		{"santa cruz", "floreana"}
 	),
 	(
 		{
@@ -657,7 +666,7 @@ name_tests = [
 			"verbatimLocality": "",
 			"island": "",
 		},
-		{"santa cruz"}
+		{"santa cruz", "baltra"}
 	),
 	(
 		{
@@ -682,6 +691,22 @@ name_tests = [
 			"island": "",
 		},
 		{"plaza"}
+	),
+	(
+		{
+			"locality": "Isla Santa Cruz, Galapagos, Ecuador",
+			"verbatimLocality": "Darwin Research Station, Academy Bay [with dried body]",
+			"island": "Bahia Academy, Darwin Research Station",
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality": "S Seymour I.",
+			"verbatimLocality": "",
+			"island": "",
+		},
+		{"baltra"}
 	),
 ]
 

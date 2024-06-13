@@ -19,7 +19,7 @@ islands = [
 	Island(
 		name = "baltra",
 		osmids = [2129829],
-		aliases = {"south seymour"},
+		aliases = {"south seymour", "s seymour"},
 	),
 	Island(
 		name = "bartolome",
