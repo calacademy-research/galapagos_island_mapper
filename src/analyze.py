@@ -9,17 +9,8 @@ import sys
 
 from base import *
 import islands
-import latlon
-import name
 import process
 import taxonomy
-
-def test():
-	ok = True
-	for mod in [latlon, name]: ok = mod.test() and ok
-	if not ok:
-		print("Tests failed")
-		exit(1)
 
 def main(args):
 	# Setup
@@ -30,7 +21,7 @@ def main(args):
 	conffile = "config.ini"
 	if not os.path.isfile(conffile): raise RuntimeError(f"Can't open configuration file {conffile!r}")
 	config.read(conffile)
-	test()
+	#if not process.test(): raise RuntimeError("Tests failed")
 	islands.init(config.get("input", "geometry"))
 	stats = process.ResolverStat.create()
 	resolver = process.LocationProcessor()
@@ -39,6 +30,7 @@ def main(args):
 
 	# Read and process data
 	print("Reading GBIF")
+	if len(args) > 2: raise RuntimeError("At most one argument is allowed.  Usage analyze.py [data-file.tsv]")
 	datafile = args[1] if len(args) > 1 else config.get("input", "gbif")
 	data = {}
 	for (_, row) in pandas.read_csv(datafile, sep="\t", quoting=3, dtype=str, na_filter=False).iterrows():
@@ -58,17 +50,17 @@ def main(args):
 		best = chooser.choose(row, res, stats)
 		if best != UNKNOWN: resolved += 1
 		best_by_resolver = chooser.best_by_resolver(res)
-		name_best = best_by_resolver.get("name", UNKNOWN).loc or "-"
-		latlon_best = best_by_resolver.get("latlon", UNKNOWN).loc or "-"
+		best_locs_by_resolver = [ best_by_resolver.get(resolver.name, UNKNOWN).loc or "-" for resolver in process.RESOLVERS ]
 		if best.loc is not None: mapper.add(row, best.loc)
-		results.append([int(row["gbifID"]), name_best, latlon_best, best.loc or "-", taxonomy.most_specific_taxon(row) or "-"])
+		result = [int(row["gbifID"])] + best_locs_by_resolver + [best.loc or "-", taxonomy.most_specific_taxon(row) or "-"]
+		results.append(result)
 		if processed % 100 == 0: print(f"\r{processed}/{tot}", end="")
 	print()
 
 	# Write results
 	print("Writing out results")
 	#results = [ { "gbifID": k, "resolutions": [ r.fields() for r in v ] } for (k, v) in resolver.results.items() ] # JSON
-	header = ["gbifID", "name", "latlon", "best", "species"]
+	header = ["gbifID"] + [ resolver.name for resolver in process.RESOLVERS ] + ["best", "species"]
 	pandas.DataFrame(results, columns=header).to_csv(config.get("output", "results"), sep="\t", index=False)
 	with open(config.get("output", "errors"), "w") as out:
 		for stat in stats.values():

@@ -7,6 +7,16 @@ RESOLVERS = [
 	name.NameResolver,
 ]
 
+TESTS = [
+	latlon.test,
+	name.test,
+]
+
+def test():
+	ok = True
+	for testfn in TESTS: ok = testfn() and ok
+	return ok
+
 class ResolverStat:
 	def __init__(self, name):
 		self.name = name
