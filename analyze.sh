@@ -2,4 +2,4 @@
 set -eu
 
 cd "$(readlink -f "$(dirname "$0")")"
-exec python src/analyze.py "$@"
+exec python3 src/analyze.py "$@"

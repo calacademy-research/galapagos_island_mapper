@@ -155,6 +155,10 @@ class LatLonResolver(Resolver):
 		if lon < -180 or lon > 180: raise ValueError(f"Longitude {lon} out of bounds")
 		return (lat, lon)
 
+	# Regex for extracting embedded decimal coordinates from free-text fields.
+	# Requires >=4 decimal places to avoid false positives from non-coordinate numbers.
+	locality_coord_re = re.compile(r'(-?\d+\.\d{4,})\s*[x,;/]\s*(-?\d+\.\d{4,})')
+
 	def find_coordinates(self, row):
 		has_col = lambda name: name in row and row[name] != ""
 		if has_col("decimalLatitude") and has_col("decimalLongitude"):
@@ -169,6 +173,13 @@ class LatLonResolver(Resolver):
 		if has_col("verbatimCoordinates"):
 			try: return self.parse_human_latlon(row["verbatimCoordinates"])
 			except: pass
+		# Last resort: try to extract decimal coordinates embedded in the locality free-text.
+		# Catches patterns like: (-1.2069,-89.6530), auto selected -1.05851, -90.88071, -1.0605x-89.6486
+		if has_col("locality"):
+			m = self.locality_coord_re.search(row["locality"])
+			if m:
+				try: return (float(m.group(1)), float(m.group(2)))
+				except: pass
 		return None
 
 	@functools.cache
@@ -178,7 +189,7 @@ class LatLonResolver(Resolver):
 		for (name, poly) in self.polygons.items():
 			if poly.ground.contains(point): return [Resolution(name, HIGH, self.name)]
 			if poly.buffer.contains(point): candidates.add(name)
-		if len(candidates) == 0: return [Resolution(None, HIGH, self.name)]
+		if len(candidates) == 0: return [Resolution(None, LOW, self.name)]
 		return [ Resolution(cand, MODERATE, self.name) for cand in candidates ]
 
 		# Alternately, we could return the island that the point is closest to.

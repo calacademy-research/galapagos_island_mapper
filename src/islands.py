@@ -70,7 +70,7 @@ islands = [
 		name = "espanola",
 		# Warning!  Order matters in this list, because this island coastline is built from a series of fragments that must be in order.
 		osmids = [992208855, 34159403, 992137192, 992137189, 992137188, 992208859, 992208854, 992208856, 34159728],
-		aliases = {"hood"},
+		aliases = {"hood", "espaniola"},
 	),
 	Island(
 		name = "fernandina",
@@ -104,7 +104,7 @@ islands = [
 	Island(
 		name = "isabela",
 		osmids = [2129921],
-		aliases = {"albemarle", "ablemarle"},
+		aliases = {"albemarle", "ablemarle", "isabella"},
 	),
 	Island(
 		name = "marchena",

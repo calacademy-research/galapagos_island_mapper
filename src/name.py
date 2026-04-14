@@ -6,6 +6,10 @@ from base import *
 import islands
 
 def normalize(s):
+	# Replace typographic dashes (em-dash —, en-dash –) with double hyphens BEFORE encoding.
+	# They would otherwise be silently stripped by ASCII encoding, incorrectly concatenating
+	# surrounding words (e.g. "Santa Cruz—Red Cinder Quarry" → "Santa CruzRed Cinder Quarry").
+	s = s.replace('\u2013', '--').replace('\u2014', '--')
 	return unicodedata.normalize("NFKD", s.casefold()).encode("ASCII", "ignore").decode()
 
 # Simple dict wrapper for tracking and manipulating relevance scores for islands
@@ -63,6 +67,73 @@ class NameResolver(Resolver):
 
 	name = "name"
 	name_columns = {"island": +1, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1}
+
+	# Named places (bays, coves, towns, landmarks) that unambiguously identify a single island.
+	# All entries are pre-normalized (lowercase, ASCII) to match the output of normalize().
+	place_islands = {
+		# Santa Cruz (Indefatigable)
+		"academy bay":        "santa cruz",   # Main bay of Puerto Ayora; also appears as "bahia academy"
+		"bahia academy":      "santa cruz",
+		"conway bay":         "santa cruz",   # Northwest coast
+		"tortuga bay":        "santa cruz",   # South coast beach; distinct from Isla Tortuga
+		"las bachas":         "santa cruz",   # North coast beach near Baltra
+		"bellavista":         "santa cruz",   # Highland village ~7 km from Puerto Ayora
+		"cerro dragon":       "santa cruz",   # Dragon Hill iguana site (Cerro Dragón)
+		# Floreana (Charles / Santa Maria)
+		"post office bay":    "floreana",     # Historic barrel post office, north coast
+		"asilo de la paz":    "floreana",     # Highland freshwater spring
+		# Isabela (Albemarle)
+		"tagus cove":         "isabela",      # West coast anchorage
+		"elizabeth bay":      "isabela",      # West coast mangrove lagoon
+		"urbina bay":         "isabela",      # West coast uplifted lava terrace
+		"urvina bay":         "isabela",      # Alternate spelling of Urbina Bay
+		"punta moreno":       "isabela",      # West coast
+		"sierra negra":       "isabela",      # Large shield volcano on Isabela
+		"punta vicente roca": "isabela",      # Northwest tip
+		"puerto villamil":    "isabela",      # Main town on Isabela
+		# Santiago (James / San Salvador)
+		"sullivan bay":       "santiago",     # Northeast coast lava field
+		"james bay":          "santiago",     # West coast anchorage
+		"buccaneer cove":     "santiago",     # Northwest coast
+		"puerto egas":        "santiago",     # James Bay area, tuff formations
+		"espumilla":          "santiago",     # Espumilla Beach, north coast
+		# San Cristóbal (Chatham)
+		"kicker rock":        "san cristobal", # León Dormido, iconic sea stack
+		"leon dormido":       "san cristobal", # Spanish name for Kicker Rock
+		"wreck bay":          "san cristobal", # Old name for Puerto Baquerizo Moreno
+		"punta pitt":         "san cristobal", # Eastern tip, seabird colony
+		# Genovesa (Tower)
+		"darwin bay":         "genovesa",     # Unique flooded caldera anchorage on Genovesa
+		"prince philip":      "genovesa",     # Prince Philip's Steps, seabird colony
+		# Española (Hood)
+		"punta suarez":       "espanola",     # West point; albatrosses, marine iguanas
+		"gardner bay":        "espanola",     # East coast beach (distinct from Gardner Island)
+		"punta cevallos":     "espanola",     # Eastern tip
+		"quinta playa":       "espanola",     # South coast beach
+		# Fernandina (Narborough)
+		"punta espinosa":     "fernandina",   # Only regular visitor landing on Fernandina
+		"cabo hammond":       "fernandina",   # Southwest tip of Fernandina
+		# Marchena (Bindloe)
+		"punta espejo":       "marchena",     # Northeast point
+		# Isabela — additional volcanos, bays, towns
+		"volcan alcedo":      "isabela",      # Active shield volcano mid-Isabela
+		"vulcan alcedo":      "isabela",      # Alternate spelling (Vulcan/Volcan)
+		"volcan darwin":      "isabela",      # Northern volcano on Isabela
+		"cerro azul":         "isabela",      # Southern volcano on Isabela
+		"volcan cerro azul":  "isabela",      # Full name variant
+		"cabo berkeley":      "isabela",      # Northwest tip of Isabela
+		"santo tomas":        "isabela",      # Highland town on Isabela (also Santo Tomás)
+		# Santa Cruz — additional sites
+		"bella vista":        "santa cruz",   # Highland village (also "Bellavista"; catches "Bella Vista Trail")
+		"el chato":           "santa cruz",   # Tortoise reserve in Santa Cruz highlands
+		"santa rosa":         "santa cruz",   # Highland village on Santa Cruz
+		"canal itabaca":      "santa cruz",   # Channel between Baltra and Santa Cruz
+		# Genovesa (Tower)
+		"bahia darwin":       "genovesa",     # Spanish for Darwin Bay (flooded caldera on Genovesa)
+		# San Cristóbal (Chatham)
+		"punta carrion":      "san cristobal", # Cliff site on San Cristóbal
+	}
+
 	island_words = ["island", "islet", "isla", "isl", "is", "id", "i", "roca"]
 	# TODO Consider handling "between ... and ..."
 	suspicious_prepositions = {"off", "also", "by", "near", "toward", "to"}
@@ -145,8 +216,15 @@ class NameResolver(Resolver):
 		for (col, adj) in self.name_columns.items():
 			val = row.get(col, "")
 			if val == "": continue
+			normalized_val = normalize(val)
 			col_results = ScoreMap()
-			for phrase in self.split_phrases(normalize(val)):
+			# Check for named places (bays, coves, towns, landmarks) that unambiguously
+			# identify a single island.  Score 8 → HIGH confidence in resolutions().
+			for (place, island) in self.place_islands.items():
+				if place in normalized_val:
+					col_results.add(island, 8)
+			# Check for island names phrase by phrase
+			for phrase in self.split_phrases(normalized_val):
 				phrase_results = ScoreMap()
 				for (island, prefix, suffix, adjustment) in self.parse_phrase(phrase):
 					score = self.score_occurrence(prefix, suffix) + adjustment
@@ -164,6 +242,19 @@ class NameResolver(Resolver):
 		return []
 
 name_tests = [
+	# Named-place lookup tests
+	({"locality": "academy bay",      "verbatimLocality": "", "island": ""}, {"santa cruz"}),
+	({"locality": "conway bay",       "verbatimLocality": "", "island": ""}, {"santa cruz"}),
+	({"locality": "post office bay",  "verbatimLocality": "", "island": ""}, {"floreana"}),
+	({"locality": "tagus cove",       "verbatimLocality": "", "island": ""}, {"isabela"}),
+	({"locality": "sullivan bay",     "verbatimLocality": "", "island": ""}, {"santiago"}),
+	({"locality": "kicker rock",      "verbatimLocality": "", "island": ""}, {"san cristobal"}),
+	({"locality": "leon dormido",     "verbatimLocality": "", "island": ""}, {"san cristobal"}),
+	({"locality": "darwin bay",       "verbatimLocality": "", "island": ""}, {"genovesa"}),
+	({"locality": "punta suarez",     "verbatimLocality": "", "island": ""}, {"espanola"}),
+	({"locality": "punta espinosa",   "verbatimLocality": "", "island": ""}, {"fernandina"}),
+	({"locality": "tagus cove, albemarle island", "verbatimLocality": "", "island": ""}, {"isabela"}),
+	({"locality": "santa cruz, academy bay",      "verbatimLocality": "", "island": ""}, {"santa cruz"}),
 	# Synthetic tests
 	({"locality": "", "verbatimLocality": "", "island": "seymour"}, {"seymour"}),
 	({"locality": "", "verbatimLocality": "", "island": "south seymour"}, {"baltra"}),
