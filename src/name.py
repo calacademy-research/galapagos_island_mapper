@@ -112,7 +112,9 @@ class NameResolver(Resolver):
 		"quinta playa":       "espanola",     # South coast beach
 		# Fernandina (Narborough)
 		"punta espinosa":     "fernandina",   # Only regular visitor landing on Fernandina
+		"punta espinoza":     "fernandina",   # Alternate spelling (z/s variant)
 		"cabo hammond":       "fernandina",   # Southwest tip of Fernandina
+		"cabo douglas":       "fernandina",   # West coast, opposite Isabela
 		# Marchena (Bindloe)
 		"punta espejo":       "marchena",     # Northeast point
 		# Isabela — additional volcanos, bays, towns
@@ -123,15 +125,24 @@ class NameResolver(Resolver):
 		"volcan cerro azul":  "isabela",      # Full name variant
 		"cabo berkeley":      "isabela",      # Northwest tip of Isabela
 		"santo tomas":        "isabela",      # Highland town on Isabela (also Santo Tomás)
+		"playa tortuga negra": "isabela",     # Black Turtle Cove area, north Isabela
+		"black turtle beach": "isabela",      # English name for Playa Tortuga Negra
+		# Floreana (Charles / Santa Maria)
+		"punta cormorant":    "floreana",     # Main visitor site on Floreana (also Punta Cormorán)
 		# Santa Cruz — additional sites
 		"bella vista":        "santa cruz",   # Highland village (also "Bellavista"; catches "Bella Vista Trail")
 		"el chato":           "santa cruz",   # Tortoise reserve in Santa Cruz highlands
 		"santa rosa":         "santa cruz",   # Highland village on Santa Cruz
 		"canal itabaca":      "santa cruz",   # Channel between Baltra and Santa Cruz
+		"los gemelos":        "santa cruz",   # Twin volcanic pit craters in SC highlands
+		"media luna":         "santa cruz",   # Highland trail/viewpoint on Santa Cruz
 		# Genovesa (Tower)
 		"bahia darwin":       "genovesa",     # Spanish for Darwin Bay (flooded caldera on Genovesa)
 		# San Cristóbal (Chatham)
 		"punta carrion":      "san cristobal", # Cliff site on San Cristóbal
+		"puerto baquerizo moreno": "san cristobal", # Main port town on San Cristóbal
+		"el junco":           "san cristobal", # Only freshwater lake in Galápagos
+		"isla lobos":         "san cristobal", # Small islet just north of San Cristóbal
 	}
 
 	island_words = ["island", "islet", "isla", "isl", "is", "id", "i", "roca"]
@@ -202,7 +213,10 @@ class NameResolver(Resolver):
 
 	def split_phrases(self, s):
 		# Ideally, we would avoid splitting on periods that are part of an abbreviation for "island", but that seems like a lot of work for minimal gain.
-		for part in re.split("[,.;\\(\\)\\[\\]\\|]+", s):
+		# We also split on '--' (GBIF's hierarchical locality separator, e.g. "Santa Cruz--Playa Garrapatero")
+		# so that the island name in the first segment isn't penalized by place modifiers in the second.
+		# Em-dashes are pre-converted to '--' in normalize(), so they are handled here too.
+		for part in re.split("[,.;\\(\\)\\[\\]\\|]+|--+", s):
 			if part == "": continue
 			yield part.strip()
 
