@@ -120,7 +120,8 @@ class Prioritizer:
 			if best_by_resolver.get("latlon", UNKNOWN).loc == "espanola" and best_by_resolver.get("name", UNKNOWN).loc == "gardner":
 				ret = best_by_resolver["latlon"]
 			# Before GPS was widely available, lat/lon are much more likely to be derived values.
-			elif row["year"] != "" and int(row["year"]) < 1980 and "name" in best_by_resolver:
+			# Guard against non-numeric year values (e.g. R exports "NA" for missing years).
+			elif row["year"] not in ("", "NA") and row["year"].lstrip("-").isdigit() and int(row["year"]) < 1980 and "name" in best_by_resolver:
 				ret = best_by_resolver["name"]
 			# iNaturalist is expected to have good GPS-based lat/lon values.
 			elif row["publisher"] == "iNaturalist.org" and "latlon" in best_by_resolver:

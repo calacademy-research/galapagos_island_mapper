@@ -160,7 +160,7 @@ class LatLonResolver(Resolver):
 	locality_coord_re = re.compile(r'(-?\d+\.\d{4,})\s*[x,;/]\s*(-?\d+\.\d{4,})')
 
 	def find_coordinates(self, row):
-		has_col = lambda name: name in row and row[name] != ""
+		has_col = lambda name: name in row and row[name] not in ("", "NA")
 		if has_col("decimalLatitude") and has_col("decimalLongitude"):
 			try: return (float(row["decimalLatitude"]), float(row["decimalLongitude"]))
 			except: pass

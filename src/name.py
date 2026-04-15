@@ -229,7 +229,7 @@ class NameResolver(Resolver):
 	def resolve(self, row):
 		for (col, adj) in self.name_columns.items():
 			val = row.get(col, "")
-			if val == "": continue
+			if val in ("", "NA"): continue
 			normalized_val = normalize(val)
 			col_results = ScoreMap()
 			# Check for named places (bays, coves, towns, landmarks) that unambiguously
