@@ -124,7 +124,7 @@ class Prioritizer:
 			elif row["year"] not in ("", "NA") and row["year"].lstrip("-").isdigit() and int(row["year"]) < 1980 and "name" in best_by_resolver:
 				ret = best_by_resolver["name"]
 			# iNaturalist is expected to have good GPS-based lat/lon values.
-			elif row["publisher"] == "iNaturalist.org" and "latlon" in best_by_resolver:
+			elif row.get("publisher", "") == "iNaturalist.org" and "latlon" in best_by_resolver:
 				ret = best_by_resolver["latlon"]
 
 		if ret is None: ret = self.best_resolution(resolutions)
