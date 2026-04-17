@@ -66,7 +66,7 @@ class NameResolver(Resolver):
 	"""
 
 	name = "name"
-	name_columns = {"island": +1, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1}
+	name_columns = {"island": +1, "county": 0, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1
 
 	# Named places (bays, coves, towns, landmarks) that unambiguously identify a single island.
 	# All entries are pre-normalized (lowercase, ASCII) to match the output of normalize().
@@ -812,6 +812,34 @@ name_tests = [
 			"island": "",
 		},
 		{"baltra"}
+	),
+	# county field tests — some GBIF records store the island name here
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"county":           "Isabela",
+		},
+		{"isabela"}
+	),
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"county":           "Santa Cruz",
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"county":           "San Cristóbal",
+		},
+		{"san cristobal"}
 	),
 ]
 
