@@ -323,7 +323,7 @@ name_tests = [
 			"verbatimLocality": "",
 			"island": "",
 		},
-		{"plaza"}
+		{"santa cruz", "plaza"}
 	),
 	(
 		{
