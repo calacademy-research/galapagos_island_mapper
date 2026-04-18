@@ -33,7 +33,10 @@ def main(args):
 	if len(args) > 2: raise RuntimeError("At most one argument is allowed.  Usage analyze.py [data-file.tsv]")
 	datafile = args[1] if len(args) > 1 else config.get("input", "gbif")
 	data = {}
-	for (_, row) in pandas.read_csv(datafile, sep="\t", quoting=3, dtype=str, na_filter=False).iterrows():
+	# on_bad_lines='skip': silently drop rows whose field count doesn't match the header.
+	# This can happen when concatenating GBIF downloads from different years that have
+	# slightly different column sets, or when a text field contains a stray tab character.
+	for (_, row) in pandas.read_csv(datafile, sep="\t", quoting=3, dtype=str, na_filter=False, on_bad_lines='skip').iterrows():
 		data[row["gbifID"]] = row
 	tot = len(data)
 	processed = 0

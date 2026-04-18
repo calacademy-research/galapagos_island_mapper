@@ -3,6 +3,7 @@ import parsimonious.grammar
 import parsimonious.nodes
 import re
 import shapely
+import warnings
 
 from base import *
 import islands
@@ -92,7 +93,12 @@ class LatLonResolver(Resolver):
 		def visit_latlon(self, node, children): return (children[0][0][0], children[0][0][4])
 
 	def __init__(self):
-		self.coord_grammar = parsimonious.grammar.Grammar(r"""
+		# Parsimonious internally calls re.compile() with plain strings for patterns
+		# like \s, \d, \. extracted from the grammar.  Python 3.12 upgraded those
+		# from DeprecationWarning to SyntaxWarning, so we suppress them here.
+		with warnings.catch_warnings():
+			warnings.simplefilter("ignore", SyntaxWarning)
+			self.coord_grammar = parsimonious.grammar.Grammar(r"""
 			ws = ~"\s*"
 			whole = ~"\d+"
 			decimal = ~"[\.,]\d+"
