@@ -26,18 +26,21 @@ library(data.table)
 # =========================================================
 
 pulls <- tibble::tribble(
-  ~source_file,                                                                          ~pull_date,    ~download_doi,
-  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_gbif_12APR2026.txt",       "2026-04-14",  "https://doi.org/10.15468/dl.4r5r7j",
-  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_gbif_24SEP2025.txt",       "2025-09-24",  "https://doi.org/10.15468/dl.hzhmgr",
-  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_28JAN2024.txt",            "2024-01-28",  "https://doi.org/10.15468/dl.3zpgd8",
-  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_15APR26.txt",              "2026-04-15",  "10.15468/dl.9xv8jq",
-  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_0025802-260409193756587.txt",              "2026-04-17",  "10.15468/dl.3jeq3p
-",
+  ~source_file,                                                                            ~pull_date,    ~download_doi,
+  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_gbif_12APR2026.txt",         "2026-04-14",  "https://doi.org/10.15468/dl.4r5r7j",
+  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_gbif_24SEP2025.txt",         "2025-09-24",  "https://doi.org/10.15468/dl.hzhmgr",
+  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_28JAN2024.txt",              "2024-01-28",  "https://doi.org/10.15468/dl.3zpgd8",
+  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_15APR26.txt",                "2026-04-15",  "10.15468/dl.9xv8jq",
+  "/Users/jdumbacher/Dropbox/Galapagos_data/input/occurrence_0025802-260409193756587.txt","2026-04-17",  "10.15468/dl.3jeq3p",
 ) %>%
   mutate(pull_date = as.Date(pull_date))
 
 OUTPUT_DIR  <- "~/Dropbox/Galapagos_data/output/"
 RESULTS_TSV <- "~/galapagos_island_mapper/results.tsv"
+
+# Galápagos easternmost point is ~-89.2°; anything east of
+# -88° is definitively mainland Ecuador.
+MAINLAND_LON_CUTOFF <- -88
 
 # =========================================================
 # SECTION 2: HELPER FUNCTIONS
@@ -295,11 +298,18 @@ cat("Next step: bash analyze.sh",
 # SECTION 10: MERGE ISLAND ASSIGNMENTS
 # =========================================================
 
-# Load results produced by analyze.py
+# Load results produced by analyze.py.
+# fread reads gbifID as integer64; convert to character so the join
+# key type matches gbif_current_best (which has character gbifID from
+# the TSV files read by readr::read_tsv).
 results <- fread(RESULTS_TSV) %>%
   clean_characters() %>%
-  mutate(across(everything(), as.character)) %>%
+  mutate(gbifID = as.character(gbifID)) %>%
   select(gbifID, best, name, latlon)
+
+# Ensure gbifID in the deduplicated records is also character
+gbif_current_best <- gbif_current_best %>%
+  mutate(gbifID = as.character(gbifID))
 
 # Join island assignments onto the deduplicated records
 galapagos_data <- inner_join(gbif_current_best, results, by = "gbifID")
@@ -316,85 +326,173 @@ if (nrow(missing_results) > 0) {
 cat(sprintf("galapagos_data ready: %d records\n", nrow(galapagos_data)))
 
 # =========================================================
-# SECTION 11: filter to Galapagos specimens
+# SECTION 11: FILTER TO GALÁPAGOS RECORDS
 # =========================================================
-
+# Mirrors the filter logic in gbif_ecuador_download.R Section 5.
+# decimalLongitude_std was created as numeric in Section 4 and
+# is NOT converted to character here, so numeric comparison works
+# directly.  We still extract lon_num explicitly for clarity and
+# safety (guards against any future upstream change).
 
 # Matches all common spellings: Galapagos, Galápagos, Galpagos, etc.
-GALAPAGOS_PATTERN <- regex("gal[aá]?pag", ignore_case = TRUE)
+GALAPAGOS_PATTERN <- regex("al[aá]?pag", ignore_case = TRUE)
 
-n_resolved <- sum(ecuador_data_merged$best != "-" & !is.na(ecuador_data_merged$best))
+n_resolved <- sum(galapagos_data$best != "-" & !is.na(galapagos_data$best))
 
-galapagos_vertebrate_specimens <- ecuador_data_merged %>%
-  
+galapagos_specimens <- galapagos_data %>%
+  mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
+
   # Step 1: keep only records that analyze.py assigned to a Galápagos island
   filter(best != "-", !is.na(best)) %>%
-  
-  # Step 2: drop records whose coordinates place them clearly on the mainland.
-  # Records with no coordinates (NA) are kept — resolved by locality text alone.
-  filter(is.na(decimalLongitude_std) | decimalLongitude_std <= MAINLAND_LON_CUTOFF) %>%
-  
-  # Step 3: remove contamination from mainland provinces whose locality text
-  # does not mention Galápagos.
-  #
-  # Why three conditions?
-  #   - stateProvince = Galápagos (any spelling)  → clearly valid, keep.
-  #   - stateProvince = NA                        → many old records lack province;
-  #                                                 keep rather than discard wholesale.
-  #   - locality text mentions "galápago"         → keeps legitimate records where
-  #                                                 stateProvince reflects the holding
-  #                                                 institution rather than collection
-#                                                 site (e.g. Smithsonian/Colón, Panama).
-#   Records that fail all three are name-only matches where a mainland place
-#   name (e.g. "Morona Santiago") matched an island name — discard these.
-mutate(
-  .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
-  .province_unknown   = is.na(stateProvince),
-  .latlon_confirmed   = !is.na(latlon) & latlon != "-",
-  .locality_galapagos = str_detect(
-    paste(
-      coalesce(locality,         ""),
-      coalesce(verbatimLocality, ""),
-      coalesce(island,           ""),
-      coalesce(islandGroup,      ""),
-      sep = " "
-    ),
-    GALAPAGOS_PATTERN
-  )
-) %>%
-  filter(.province_galapagos | .province_unknown | .latlon_confirmed | .locality_galapagos) %>%
-  select(-starts_with(".")) %>% 
-  
-  filter(basisOfRecord %in% c(
-    "PRESERVED_SPECIMEN",
-    "FOSSIL_SPECIMEN",   "MATERIAL_SAMPLE",
-    "LIVING_SPECIMEN",   "OCCURRENCE"
-  )) %>% 
-  
-  filter(class %in% c("Aves","Mammalia","Squamata","Testudines"))
-  
 
-n_after_step1 <- n_resolved
-n_after_step2 <- sum(
-  ecuador_data_merged$best != "-" & !is.na(ecuador_data_merged$best) &
-    (is.na(suppressWarnings(as.numeric(ecuador_data_merged$decimalLongitude_std))) |
-       suppressWarnings(as.numeric(ecuador_data_merged$decimalLongitude_std)) <= MAINLAND_LON_CUTOFF)
-)
+  # Step 2: drop records whose coordinates place them clearly on the mainland.
+  # Records with no coordinates (NA lon_num) are kept — resolved by name/locality.
+  filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
+
+  # Step 3: remove remaining contamination — records whose island assignment
+  # almost certainly came from a mainland place name rather than a genuine
+  # Galápagos locality description.
+  #
+  # Four conditions — a record is kept if ANY is TRUE:
+  #
+  #  A. latlon_confirmed   → lat/lon resolver placed it on a Galápagos island.
+  #                          GPS-derived coordinates are highly reliable.
+  #
+  #  B. province_galapagos → stateProvince explicitly says "Galápagos"
+  #                          (any spelling/accent variant).  Clearly valid.
+  #
+  #  C. province_unknown   → stateProvince is NA.  Many old museum records
+  #                          lack this field; keeping them avoids wholesale
+  #                          loss of large legitimate collections.
+  #
+  #  D. locality_galapagos → locality / verbatimLocality / island /
+  #                          islandGroup text contains "galápago" (any
+  #                          spelling).  Clearly Galápagos-labelled.
+  #
+  #  Records failing all four are name-only matches where a mainland place
+  #  name (e.g. "Morona Santiago" → santiago, "Santa Elena" → santa fe)
+  #  happened to match an island name — these are discarded.
+  mutate(
+    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
+    .province_unknown   = is.na(stateProvince),
+    .latlon_confirmed   = !is.na(latlon) & latlon != "-",
+    .locality_galapagos = str_detect(
+      paste(
+        coalesce(locality,         ""),
+        coalesce(verbatimLocality, ""),
+        coalesce(island,           ""),
+        coalesce(islandGroup,      ""),
+        sep = " "
+      ),
+      GALAPAGOS_PATTERN
+    )
+  ) %>%
+  filter(
+    .latlon_confirmed   |   # (A) lat/lon resolver → always trust
+    .province_galapagos |   # (B) stateProvince = Galápagos
+    .province_unknown   |   # (C) no province info (old records)
+    .locality_galapagos     # (D) locality text mentions Galápagos
+  ) %>%
+  select(-starts_with("."), -lon_num)
+
+# ── Filter summary ────────────────────────────────────────
+n_after_step2 <- galapagos_data %>%
+  filter(best != "-", !is.na(best)) %>%
+  mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
+  filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
+  nrow()
 
 cat(sprintf(
   "Filter summary:\n  Resolved to island by analyze.py : %d\n  After mainland coordinate filter  : %d  (-%d)\n  After province/locality filter    : %d  (-%d)\n",
-  n_after_step1,
-  n_after_step2, n_after_step1 - n_after_step2,
+  n_resolved,
+  n_after_step2, n_resolved - n_after_step2,
   nrow(galapagos_specimens), n_after_step2 - nrow(galapagos_specimens)
 ))
+
+# ── Which condition kept each record? ────────────────────
+step3_pool <- galapagos_data %>%
+  mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
+  filter(best != "-", !is.na(best)) %>%
+  filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
+  mutate(
+    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
+    .province_unknown   = is.na(stateProvince),
+    .latlon_confirmed   = !is.na(latlon) & latlon != "-",
+    .locality_galapagos = str_detect(
+      paste(coalesce(locality,""), coalesce(verbatimLocality,""),
+            coalesce(island,""),   coalesce(islandGroup,""), sep=" "),
+      GALAPAGOS_PATTERN),
+    .kept = .latlon_confirmed | .province_galapagos | .province_unknown |
+            .locality_galapagos
+  )
+
+cat("\nRecords kept by each filter condition (not mutually exclusive):\n")
+tribble(
+  ~condition,                        ~n,
+  "(A) lat/lon resolved",            sum(step3_pool$.latlon_confirmed,   na.rm=TRUE),
+  "(B) province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
+  "(C) province = NA",               sum(step3_pool$.province_unknown,   na.rm=TRUE),
+  "(D) locality mentions Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
+  "TOTAL kept",                      sum( step3_pool$.kept,              na.rm=TRUE),
+  "TOTAL dropped (contamination)",   sum(!step3_pool$.kept,              na.rm=TRUE)
+) %>% print()
 
 cat("\nstateProvince breakdown of retained records:\n")
 galapagos_specimens %>%
   mutate(province_group = case_when(
     str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN) ~ "Galápagos province",
     is.na(stateProvince)                                        ~ "Province unknown (NA)",
-    TRUE                                                        ~ "Other province (locality confirmed)"
+    TRUE                                                        ~ "Other province (latlon confirmed)"
   )) %>%
-  count(province_group) %>%
+  count(province_group, sort = TRUE) %>%
   print()
 
+cat("\nCAS Aves surviving filter (spot-check for recovery):\n")
+galapagos_specimens %>%
+  filter(coalesce(institutionCode, "") == "CAS",
+         coalesce(class, "")           == "Aves") %>%
+  summarise(n = n(), islands = n_distinct(best)) %>%
+  print()
+
+cat("\nTop stateProvince values among dropped records (contamination check):\n")
+step3_pool %>%
+  filter(!.kept) %>%
+  count(stateProvince, sort = TRUE) %>%
+  slice_head(n = 15) %>%
+  print()
+
+# =========================================================
+# SECTION 12: WRITE OUTPUTS
+# =========================================================
+# Output files use the _multipull suffix to distinguish them from
+# the equivalent files produced by gbif_ecuador_download.R, since
+# both pipelines write to the same OUTPUT_DIR.
+
+# ── 12a. Main output: confirmed Galápagos specimens ───────
+out_file <- file.path(OUTPUT_DIR, "galapagos_specimens_multipull.tsv")
+write_tsv(galapagos_specimens, out_file)
+cat("Written:", out_file, "\n")
+
+# ── 12b. Unresolved Galápagos records ────────────────────
+# Records with stateProvince = Galápagos that analyze.py could not
+# assign to a specific island — typically old records without
+# specific locality text or usable coordinates.
+galapagos_unresolved <- galapagos_data %>%
+  filter(best == "-" | is.na(best)) %>%
+  filter(str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN))
+
+cat(sprintf(
+  "\nUnresolved Galápagos records: %d total\n",
+  nrow(galapagos_unresolved)
+))
+
+cat("  By class:\n")
+galapagos_unresolved %>%
+  mutate(class_label = coalesce(class, "(no class)")) %>%
+  count(class_label, sort = TRUE) %>%
+  slice_head(n = 15) %>%
+  print(n = 15)
+
+unresolved_file <- file.path(OUTPUT_DIR, "galapagos_unresolved_multipull.tsv")
+write_tsv(galapagos_unresolved, unresolved_file)
+cat("\nWritten:", unresolved_file, "\n")
