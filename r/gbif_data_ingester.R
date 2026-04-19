@@ -335,7 +335,37 @@ cat(sprintf("galapagos_data ready: %d records\n", nrow(galapagos_data)))
 # safety (guards against any future upstream change).
 
 # Matches all common spellings: Galapagos, Galápagos, Galpagos, etc.
-GALAPAGOS_PATTERN <- regex("gal[aá]?pag", ignore_case = TRUE)
+GALAPAGOS_PATTERN <- regex("al[aá]?pag", ignore_case = TRUE)
+
+# Historical English names for Galápagos islands used in pre-GPS museum
+# collections.  These do not contain the word "galápago" so condition D
+# would miss them; condition E catches them explicitly.
+# Isabela=Albemarle, Fernandina=Narborough, Santa Cruz=Indefatigable,
+# San Cristóbal=Chatham, Floreana=Charles, Santiago=James,
+# Genovesa=Tower, Marchena=Bindloe, Pinta=Abingdon, Rábida=Jervis,
+# Santa Fé=Barrington, Darwin=Culpepper, Wolf=Wenman, Pinzón=Duncan.
+ENGLISH_ISLAND_PATTERN <- regex(
+  paste(
+    "\\balbemarle\\b",         # Isabela
+    "\\bnarborough\\b",        # Fernandina
+    "\\bindefatigable\\b",     # Santa Cruz
+    "\\bchatham island\\b",    # San Cristóbal
+    "\\bcharles island\\b",    # Floreana
+    "\\bjames island\\b",      # Santiago
+    "\\btower island\\b",      # Genovesa
+    "\\bbindloe\\b",           # Marchena
+    "\\babingdon\\b",          # Pinta
+    "\\bjervis island\\b",     # Rábida
+    "\\bbarrington island\\b", # Santa Fé
+    "\\bculpepper\\b",         # Darwin
+    "\\bwenman\\b",            # Wolf
+    "\\bnorth seymour\\b",     # North Seymour
+    "\\bsouth seymour\\b",     # Baltra / South Seymour
+    "\\bduncan island\\b",     # Pinzón
+    sep = "|"
+  ),
+  ignore_case = TRUE
+)
 
 n_resolved <- sum(galapagos_data$best != "-" & !is.na(galapagos_data$best))
 
@@ -358,18 +388,25 @@ galapagos_specimens <- galapagos_data %>%
   #  A. latlon_confirmed   → lat/lon resolver placed it on a Galápagos island.
   #                          GPS-derived coordinates are highly reliable.
   #
-  #  A2. gadm_galapagos   → GBIF-assigned GADM level-1 code is ECU.9_1
+  #  B. gadm_galapagos   → GBIF-assigned GADM level-1 code is ECU.9_1
   #                          (Galápagos province).  Derived from coordinates
   #                          by GBIF; catches records that lat/lon placed in
   #                          Galápagos waters but not on a specific island.
   #                          Largely redundant with (A) but kept as a backstop.
   #
-  #  B. province_galapagos → stateProvince explicitly says "Galápagos"
+  #  C. province_galapagos → stateProvince explicitly says "Galápagos"
   #                          (any spelling/accent variant).  Clearly valid.
   #
   #  D. locality_galapagos → locality / verbatimLocality / island /
-  #                          islandGroup text contains "galápago" (any
+  #                          islandGroup / county / occurrenceRemarks /
+  #                          locationRemarks contains "galápago" (any
   #                          spelling).  Clearly Galápagos-labelled.
+  #
+  #  E. english_island      → locality / verbatimLocality / island
+  #                          contains an old English Galápagos island name
+  #                          (Albemarle, Narborough, Chatham Island, etc.).
+  #                          Recovers pre-GPS museum records that predate
+  #                          use of the Spanish names.
   #
   #  NOTE: the former condition C (stateProvince is NA) has been removed.
   #  It was allowing mainland records to slip through when the name resolver
@@ -385,20 +422,33 @@ galapagos_specimens <- galapagos_data %>%
     .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
     .locality_galapagos = str_detect(
       paste(
-        coalesce(locality,         ""),
-        coalesce(verbatimLocality, ""),
-        coalesce(island,           ""),
-        coalesce(islandGroup,      ""),
+        coalesce(locality,          ""),
+        coalesce(verbatimLocality,  ""),
+        coalesce(island,            ""),
+        coalesce(islandGroup,       ""),
+        coalesce(county,            ""),
+        coalesce(occurrenceRemarks, ""),
+        coalesce(locationRemarks,   ""),
         sep = " "
       ),
       GALAPAGOS_PATTERN
+    ),
+    .english_island = str_detect(
+      paste(
+        coalesce(locality,        ""),
+        coalesce(verbatimLocality,""),
+        coalesce(island,          ""),
+        sep = " "
+      ),
+      ENGLISH_ISLAND_PATTERN
     )
   ) %>%
   filter(
     .latlon_confirmed   |   # (A)  lat/lon resolver → always trust
     .gadm_galapagos     |   # (A2) GADM level-1 = ECU.9_1
     .province_galapagos |   # (B)  stateProvince = Galápagos
-    .locality_galapagos     # (D)  locality text mentions Galápagos
+    .locality_galapagos |   # (D)  locality/county/remarks mention Galápagos
+    .english_island         # (E)  old English island names
   ) %>%
   select(-starts_with("."), -lon_num)
 
@@ -427,10 +477,16 @@ step3_pool <- galapagos_data %>%
     .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
     .locality_galapagos = str_detect(
       paste(coalesce(locality,""), coalesce(verbatimLocality,""),
-            coalesce(island,""),   coalesce(islandGroup,""), sep=" "),
+            coalesce(island,""),   coalesce(islandGroup,""),
+            coalesce(county,""),   coalesce(occurrenceRemarks,""),
+            coalesce(locationRemarks,""), sep=" "),
       GALAPAGOS_PATTERN),
+    .english_island = str_detect(
+      paste(coalesce(locality,""), coalesce(verbatimLocality,""),
+            coalesce(island,""), sep=" "),
+      ENGLISH_ISLAND_PATTERN),
     .kept = .latlon_confirmed | .gadm_galapagos | .province_galapagos |
-            .locality_galapagos
+            .locality_galapagos | .english_island
   )
 
 cat("\nRecords kept by each filter condition (not mutually exclusive):\n")
@@ -439,7 +495,8 @@ tribble(
   "(A)  lat/lon resolved",            sum(step3_pool$.latlon_confirmed,   na.rm=TRUE),
   "(A2) GADM = ECU.9_1",              sum(step3_pool$.gadm_galapagos,     na.rm=TRUE),
   "(B)  province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
-  "(D)  locality mentions Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
+  "(D)  locality/county/remarks = Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
+  "(E)  old English island names",    sum(step3_pool$.english_island,     na.rm=TRUE),
   "TOTAL kept",                       sum( step3_pool$.kept,              na.rm=TRUE),
   "TOTAL dropped (contamination)",    sum(!step3_pool$.kept,              na.rm=TRUE)
 ) %>% print()
