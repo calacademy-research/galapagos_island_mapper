@@ -335,7 +335,7 @@ cat(sprintf("galapagos_data ready: %d records\n", nrow(galapagos_data)))
 # safety (guards against any future upstream change).
 
 # Matches all common spellings: Galapagos, Galápagos, Galpagos, etc.
-GALAPAGOS_PATTERN <- regex("al[aá]?pag", ignore_case = TRUE)
+GALAPAGOS_PATTERN <- regex("gal[aá]?pag", ignore_case = TRUE)
 
 n_resolved <- sum(galapagos_data$best != "-" & !is.na(galapagos_data$best))
 
@@ -358,24 +358,31 @@ galapagos_specimens <- galapagos_data %>%
   #  A. latlon_confirmed   → lat/lon resolver placed it on a Galápagos island.
   #                          GPS-derived coordinates are highly reliable.
   #
+  #  A2. gadm_galapagos   → GBIF-assigned GADM level-1 code is ECU.9_1
+  #                          (Galápagos province).  Derived from coordinates
+  #                          by GBIF; catches records that lat/lon placed in
+  #                          Galápagos waters but not on a specific island.
+  #                          Largely redundant with (A) but kept as a backstop.
+  #
   #  B. province_galapagos → stateProvince explicitly says "Galápagos"
   #                          (any spelling/accent variant).  Clearly valid.
-  #
-  #  C. province_unknown   → stateProvince is NA.  Many old museum records
-  #                          lack this field; keeping them avoids wholesale
-  #                          loss of large legitimate collections.
   #
   #  D. locality_galapagos → locality / verbatimLocality / island /
   #                          islandGroup text contains "galápago" (any
   #                          spelling).  Clearly Galápagos-labelled.
   #
-  #  Records failing all four are name-only matches where a mainland place
-  #  name (e.g. "Morona Santiago" → santiago, "Santa Elena" → santa fe)
-  #  happened to match an island name — these are discarded.
+  #  NOTE: the former condition C (stateProvince is NA) has been removed.
+  #  It was allowing mainland records to slip through when the name resolver
+  #  matched a continental place name (e.g. "Santa Cruz" canton in Guayas,
+  #  "Santiago" province, "Morona Santiago") to a Galápagos island name.
+  #  Records with no province must now pass at least one of A/A2/B/D.
+  #  This may drop some pre-GPS museum records with old English island names
+  #  (e.g. "James Island", "Albemarle") that lack any Galápagos text anchor;
+  #  that loss is accepted to eliminate the much larger mainland contamination.
   mutate(
-    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
-    .province_unknown   = is.na(stateProvince),
     .latlon_confirmed   = !is.na(latlon) & latlon != "-",
+    .gadm_galapagos     = coalesce(level1Gid, "") == "ECU.9_1",
+    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
     .locality_galapagos = str_detect(
       paste(
         coalesce(locality,         ""),
@@ -388,10 +395,10 @@ galapagos_specimens <- galapagos_data %>%
     )
   ) %>%
   filter(
-    .latlon_confirmed   |   # (A) lat/lon resolver → always trust
-    .province_galapagos |   # (B) stateProvince = Galápagos
-    .province_unknown   |   # (C) no province info (old records)
-    .locality_galapagos     # (D) locality text mentions Galápagos
+    .latlon_confirmed   |   # (A)  lat/lon resolver → always trust
+    .gadm_galapagos     |   # (A2) GADM level-1 = ECU.9_1
+    .province_galapagos |   # (B)  stateProvince = Galápagos
+    .locality_galapagos     # (D)  locality text mentions Galápagos
   ) %>%
   select(-starts_with("."), -lon_num)
 
@@ -415,34 +422,35 @@ step3_pool <- galapagos_data %>%
   filter(best != "-", !is.na(best)) %>%
   filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
   mutate(
-    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
-    .province_unknown   = is.na(stateProvince),
     .latlon_confirmed   = !is.na(latlon) & latlon != "-",
+    .gadm_galapagos     = coalesce(level1Gid, "") == "ECU.9_1",
+    .province_galapagos = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
     .locality_galapagos = str_detect(
       paste(coalesce(locality,""), coalesce(verbatimLocality,""),
             coalesce(island,""),   coalesce(islandGroup,""), sep=" "),
       GALAPAGOS_PATTERN),
-    .kept = .latlon_confirmed | .province_galapagos | .province_unknown |
+    .kept = .latlon_confirmed | .gadm_galapagos | .province_galapagos |
             .locality_galapagos
   )
 
 cat("\nRecords kept by each filter condition (not mutually exclusive):\n")
 tribble(
-  ~condition,                        ~n,
-  "(A) lat/lon resolved",            sum(step3_pool$.latlon_confirmed,   na.rm=TRUE),
-  "(B) province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
-  "(C) province = NA",               sum(step3_pool$.province_unknown,   na.rm=TRUE),
-  "(D) locality mentions Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
-  "TOTAL kept",                      sum( step3_pool$.kept,              na.rm=TRUE),
-  "TOTAL dropped (contamination)",   sum(!step3_pool$.kept,              na.rm=TRUE)
+  ~condition,                         ~n,
+  "(A)  lat/lon resolved",            sum(step3_pool$.latlon_confirmed,   na.rm=TRUE),
+  "(A2) GADM = ECU.9_1",              sum(step3_pool$.gadm_galapagos,     na.rm=TRUE),
+  "(B)  province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
+  "(D)  locality mentions Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
+  "TOTAL kept",                       sum( step3_pool$.kept,              na.rm=TRUE),
+  "TOTAL dropped (contamination)",    sum(!step3_pool$.kept,              na.rm=TRUE)
 ) %>% print()
 
 cat("\nstateProvince breakdown of retained records:\n")
 galapagos_specimens %>%
   mutate(province_group = case_when(
     str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN) ~ "Galápagos province",
-    is.na(stateProvince)                                        ~ "Province unknown (NA)",
-    TRUE                                                        ~ "Other province (latlon confirmed)"
+    coalesce(level1Gid, "") == "ECU.9_1"                       ~ "GADM = ECU.9_1 (no province text)",
+    is.na(stateProvince)                                        ~ "Other province (latlon/locality confirmed)",
+    TRUE                                                        ~ "Other province (latlon/locality confirmed)"
   )) %>%
   count(province_group, sort = TRUE) %>%
   print()
