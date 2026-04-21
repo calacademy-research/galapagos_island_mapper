@@ -41,7 +41,7 @@ library(data.table)
 
 # Paste the key returned by occ_download() / from the GBIF
 # email here before running Section 2 in retrieval mode.
-DOWNLOAD_KEY  <- ""
+DOWNLOAD_KEY  <- "0035498-260409193756587"
 
 RAW_DATA_DIR  <- "~/Dropbox/Galapagos_data/raw_data_from_gbif/"
 INPUT_TSV     <- "~/Dropbox/Galapagos_data/input/galapagos_gadm_occurrences.tsv"
