@@ -253,18 +253,18 @@ galapagos_specimens <- ecuador_data_merged %>%
   # almost certainly came from a mainland place name rather than a genuine
   # Galápagos locality description.
   #
-  # Four conditions — a record is kept if ANY is TRUE:
+  # Four conditions — a record is kept if ANY (from A-D) is TRUE:
   #
   #  A. latlon_confirmed   → lat/lon resolver placed it on a Galápagos island.
   #                          GPS-derived coordinates are highly reliable.
   #
-  #  A2. gadm_galapagos   → GBIF-assigned GADM level-1 code is ECU.9_1
+  #  B. gadm_galapagos   → GBIF-assigned GADM level-1 code is ECU.9_1
   #                          (Galápagos province).  Derived from coordinates
   #                          by GBIF; catches records that lat/lon placed in
   #                          Galápagos waters but not on a specific island.
   #                          Largely redundant with (A) but kept as a backstop.
   #
-  #  B. province_galapagos → stateProvince explicitly says "Galápagos"
+  #  C. province_galapagos → stateProvince explicitly says "Galápagos"
   #                          (any spelling/accent variant).  Clearly valid.
   #
   #  D. locality_galapagos → locality / verbatimLocality / island /
@@ -282,7 +282,7 @@ galapagos_specimens <- ecuador_data_merged %>%
   #  It was allowing mainland records to slip through when the name resolver
   #  matched a continental place name (e.g. "Santa Cruz" canton in Guayas,
   #  "Santiago" province, "Morona Santiago") to a Galápagos island name.
-  #  Records with no province must now pass at least one of A/A2/B/D.
+  #  Records with no province must now pass at least one of A/B/C/D.
   #  This may drop some pre-GPS museum records with old English island names
   #  (e.g. "James Island", "Albemarle") that lack any Galápagos text anchor;
   #  that loss is accepted to eliminate the much larger mainland contamination.
@@ -315,8 +315,8 @@ galapagos_specimens <- ecuador_data_merged %>%
   ) %>%
   filter(
     .latlon_confirmed   |   # (A)  lat/lon resolver → always trust
-    .gadm_galapagos     |   # (A2) GADM level-1 = ECU.9_1
-    .province_galapagos |   # (B)  stateProvince = Galápagos
+    .gadm_galapagos     |   # (B) GADM level-1 = ECU.9_1
+    .province_galapagos |   # (C)  stateProvince = Galápagos
     .locality_galapagos |   # (D)  locality/county/remarks mention Galápagos
     .english_island         # (E)  old English island names
   ) %>%
@@ -364,8 +364,8 @@ cat("\nRecords kept by each filter condition (not mutually exclusive):\n")
 tribble(
   ~condition,                         ~n,
   "(A)  lat/lon resolved",            sum(step3_pool$.latlon_confirmed,   na.rm=TRUE),
-  "(A2) GADM = ECU.9_1",              sum(step3_pool$.gadm_galapagos,     na.rm=TRUE),
-  "(B)  province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
+  "(B) GADM = ECU.9_1",              sum(step3_pool$.gadm_galapagos,     na.rm=TRUE),
+  "(C)  province = Galápagos",        sum(step3_pool$.province_galapagos, na.rm=TRUE),
   "(D)  locality/county/remarks = Galápagos", sum(step3_pool$.locality_galapagos, na.rm=TRUE),
   "(E)  old English island names",    sum(step3_pool$.english_island,     na.rm=TRUE),
   "TOTAL kept",                       sum( step3_pool$.kept,              na.rm=TRUE),
@@ -397,6 +397,24 @@ step3_pool %>%
   slice_head(n = 15) %>%
   print()
 
+# ── Type-2 contamination diagnostic ─────────────────────────────────────────
+# Records kept ONLY by condition C (stateProvince = Galápagos) with no
+# latlon/GADM/locality/English corroboration are the most vulnerable to
+# mainland contamination — a mislabeled stateProvince would pass them.
+# Inspect the island distribution and top species of these records.
+cat("\n--- Type-2 diagnostic: records kept by condition C only ---\n")
+cat("(no lat/lon, no GADM, no locality text, no English island name)\n")
+c_only <- step3_pool %>%
+  filter(.province_galapagos & !.latlon_confirmed & !.gadm_galapagos &
+         !.locality_galapagos & !.english_island)
+cat(sprintf("  Count: %d records\n", nrow(c_only)))
+if (nrow(c_only) > 0) {
+  cat("  Island distribution:\n")
+  c_only %>% count(best, sort = TRUE) %>% print()
+  cat("  Top species:\n")
+  c_only %>% count(species, sort = TRUE) %>% slice_head(n = 10) %>% print()
+}
+
 # =========================================================
 # SECTION 6: WRITE OUTPUTS
 # =========================================================
@@ -407,17 +425,42 @@ write_tsv(galapagos_specimens, out_file)
 cat("Written:", out_file, "\n")
 
 # ── 6b. Unresolved Galápagos records ─────────────────────
-# These records have stateProvince = Galápagos (clearly from
-# the archipelago) but analyze.py could not assign them to a
-# specific island — typically because they lack specific
-# locality text and have no usable coordinates.
+# These records have stateProvince = Galápagos but analyze.py
+# could not assign them to a specific island — typically old
+# records without specific locality text or usable coordinates.
+#
+# In addition to stateProvince = Galápagos (condition C), we
+# require at least one corroborating signal (B, D, or E from
+# the main filter).  Records with ONLY stateProvince = Galápagos
+# and no other anchor are excluded: a mislabeled mainland record
+# could pass on stateProvince alone, introducing mainland species
+# into the "archipelago" column of species_by_island.R's output.
 #
 # Saved with ALL columns intact so we can look for locality
 # data in less-standard fields (habitat, verbatimLocality,
 # georeferenceRemarks, locationRemarks, occurrenceRemarks, etc.)
 galapagos_unresolved <- ecuador_data_merged %>%
   filter(best == "-" | is.na(best)) %>%
-  filter(str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN))
+  filter(str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN)) %>%
+  filter(
+    coalesce(level1Gid, "") == "ECU.9_1" |            # (B) GADM confirmed
+    str_detect(                                         # (D) locality text
+      paste(coalesce(locality,          ""),
+            coalesce(verbatimLocality,  ""),
+            coalesce(island,            ""),
+            coalesce(islandGroup,       ""),
+            coalesce(county,            ""),
+            coalesce(occurrenceRemarks, ""),
+            coalesce(locationRemarks,   ""),
+            sep = " "),
+      GALAPAGOS_PATTERN) |
+    str_detect(                                         # (E) English names
+      paste(coalesce(locality,         ""),
+            coalesce(verbatimLocality, ""),
+            coalesce(island,           ""),
+            sep = " "),
+      ENGLISH_ISLAND_PATTERN)
+  )
 
 cat(sprintf(
   "\nUnresolved Galápagos records: %d total\n",
