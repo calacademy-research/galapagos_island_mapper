@@ -78,6 +78,55 @@ add_species_name <- function(df) {
 specimens   <- add_species_name(specimens)
 unresolved  <- add_species_name(unresolved_raw)
 
+# ── Diagnostic: unexpected best values in specimens ───────────
+# galapagos_specimens.tsv should only contain records with a
+# specific island in 'best'.  Any NA / empty / "-" values here
+# indicate a gap in the upstream filter in gbif_ecuador_download.R
+# or gbif_data_ingester.R.  Print details so we can trace which
+# filter condition (A latlon / B GADM / C province / D locality /
+# E English name) is letting them through.
+bad_best <- specimens %>%
+  filter(is.na(best) | best == "" | best == "-")
+
+if (nrow(bad_best) > 0) {
+  cat(sprintf(
+    "\nWARNING: %d specimen record(s) have missing/empty/'-' best value.\n",
+    nrow(bad_best)
+  ))
+  cat("Diagnosing which filter conditions they satisfy:\n")
+  GALAPAGOS_PATTERN   <- regex("al[aá]?pag", ignore_case = TRUE)
+  ENGLISH_ISLAND_PATTERN <- regex(
+    paste("\\balbemarle\\b", "\\bnarborough\\b", "\\bindefatigable\\b",
+          "\\bchatham island\\b", "\\bcharles island\\b", "\\bjames island\\b",
+          "\\btower island\\b", "\\bbindloe\\b", "\\babingdon\\b",
+          "\\bjervis island\\b", "\\bbarrington island\\b", "\\bculpepper\\b",
+          "\\bwenman\\b", "\\bnorth seymour\\b", "\\bsouth seymour\\b",
+          "\\bduncan island\\b", sep = "|"),
+    ignore_case = TRUE
+  )
+  bad_best %>%
+    mutate(
+      .A_latlon  = !is.na(latlon) & latlon != "-",
+      .B_gadm    = coalesce(level1Gid, "") == "ECU.9_1",
+      .C_prov    = str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN),
+      .D_loc     = str_detect(
+        paste(coalesce(locality,""), coalesce(verbatimLocality,""),
+              coalesce(island,""),   coalesce(islandGroup,""),
+              coalesce(county,""),   coalesce(occurrenceRemarks,""),
+              coalesce(locationRemarks,""), sep=" "),
+        GALAPAGOS_PATTERN),
+      .E_english = str_detect(
+        paste(coalesce(locality,""), coalesce(verbatimLocality,""),
+              coalesce(island,""), sep=" "),
+        ENGLISH_ISLAND_PATTERN)
+    ) %>%
+    select(gbifID, species, stateProvince, locality, latlon,
+           .A_latlon, .B_gadm, .C_prov, .D_loc, .E_english) %>%
+    print(n = 20)
+} else {
+  cat("\nAll specimen records have a valid island in 'best'. Good.\n")
+}
+
 # Filter both to target vertebrate classes
 vertebrates  <- specimens  %>% filter(class %in% TARGET_CLASSES)
 unres_verts  <- unresolved %>% filter(class %in% TARGET_CLASSES)
