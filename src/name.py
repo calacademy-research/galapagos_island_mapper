@@ -66,7 +66,12 @@ class NameResolver(Resolver):
 	"""
 
 	name = "name"
-	name_columns = {"island": +1, "county": 0, "locality": 0, "verbatimLocality": 0} #, "level3Name": -1, "level2Name": -1
+	# Columns searched in order; first column that yields a match is returned.
+	# adj is added to every score from that column before confidence is assigned
+	# (HIGH >7, MODERATE 3-7, LOW <3).  stateProvince is last because it is the
+	# coarsest field; adj=-1 slightly downgrades its confidence relative to the
+	# more specific locality / verbatimLocality fields.
+	name_columns = {"island": +1, "county": 0, "locality": 0, "verbatimLocality": 0, "stateProvince": -1} #, "level3Name": -1, "level2Name": -1
 
 	# Named places (bays, coves, towns, landmarks) that unambiguously identify a single island.
 	# All entries are pre-normalized (lowercase, ASCII) to match the output of normalize().
@@ -840,6 +845,110 @@ name_tests = [
 			"county":           "San Cristóbal",
 		},
 		{"san cristobal"}
+	),
+	# stateProvince field tests — many GBIF records store island-level info here.
+	# stateProvince is searched last (adj=-1) so it only fires when other fields
+	# are empty.  The R Step 3 filter provides the backstop against mainland
+	# records whose stateProvince happens to contain an ambiguous Spanish name
+	# (e.g. "Morona-Santiago" → would match "santiago" but fails A/B/C/D/E).
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "James Island",
+		},
+		{"santiago"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Isabela Island",
+		},
+		{"isabela"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Isla Isabela (Albemarle)",
+		},
+		{"isabela"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Isla Santa Cruz (Indefatigable)",
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Isla San Cristobal (Chatham)",
+		},
+		{"san cristobal"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Galapagos Eil., Sta Cruz",  # German collection abbrev.
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Santa Cruz Island",
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Galapagos Eil.; Santiago Isl.",
+		},
+		{"santiago"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Santa Cruz Island, Galapagos Islands",
+		},
+		{"santa cruz"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Tower is",
+		},
+		{"genovesa"}
+	),
+	(
+		{
+			"locality":      "", "verbatimLocality": "",
+			"island":        "", "county":           "",
+			"stateProvince": "Albemarle is",
+		},
+		{"isabela"}
+	),
+	# stateProvince should not override a match already found in locality
+	(
+		{
+			"locality":      "genovesa island",
+			"verbatimLocality": "",
+			"island":        "",
+			"county":        "",
+			"stateProvince": "Santa Cruz Island",
+		},
+		{"genovesa"}   # locality wins; stateProvince not consulted
 	),
 ]
 

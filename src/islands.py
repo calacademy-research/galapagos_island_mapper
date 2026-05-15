@@ -142,7 +142,10 @@ islands = [
 	Island(
 		name = "santa cruz",
 		osmids = [2129845],
-		aliases = {"indefatigable", "indefagitable", "puerto ayora"},
+		# "sta cruz" appears in German natural history collections (e.g. stateProvince
+		# values like "Galapagos Eil., Sta Cruz"); Levenshtein distance 2 from
+		# "santa cruz" so it needs an explicit alias.
+		aliases = {"indefatigable", "indefagitable", "puerto ayora", "sta cruz"},
 	),
 	Island(
 		name = "santa fe",
