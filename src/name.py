@@ -68,10 +68,34 @@ class NameResolver(Resolver):
 	name = "name"
 	# Columns searched in order; first column that yields a match is returned.
 	# adj is added to every score from that column before confidence is assigned
-	# (HIGH >7, MODERATE 3-7, LOW <3).  stateProvince is last because it is the
-	# coarsest field; adj=-1 slightly downgrades its confidence relative to the
-	# more specific locality / verbatimLocality fields.
-	name_columns = {"island": +1, "county": 0, "locality": 0, "verbatimLocality": 0, "stateProvince": -1} #, "level3Name": -1, "level2Name": -1
+	# (HIGH >7, MODERATE 3-7, LOW <3).
+	#
+	# Column ordering rationale:
+	#   island          — dedicated island field, highest weight
+	#   locality /
+	#   verbatimLocality /
+	#   islandGroup     — primary locality fields, equal weight
+	#   county          — last among the adj=0 group: in older records the
+	#                     provincial capital (San Cristóbal) was sometimes
+	#                     entered as county even when the specimen came from
+	#                     a different island, so we only fall back here if the
+	#                     more specific fields above yield nothing
+	#   locationRemarks — location-specific free-text notes, less structured
+	#   stateProvince   — coarse admin field; specific island name often present
+	#                     (e.g. "Isla Isabela (Albemarle)") but also used for
+	#                     province-level labels ("Galápagos Province")
+	#   occurrenceRemarks — most general free-text; consulted last because
+	#                       incidental island mentions are most likely here
+	name_columns = {
+		"island":            +1,
+		"locality":           0,
+		"verbatimLocality":   0,
+		"islandGroup":        0,
+		"county":             0,
+		"locationRemarks":   -1,
+		"stateProvince":     -1,
+		"occurrenceRemarks": -1,
+	} #, "level3Name": -1, "level2Name": -1
 
 	# Named places (bays, coves, towns, landmarks) that unambiguously identify a single island.
 	# All entries are pre-normalized (lowercase, ASCII) to match the output of normalize().
@@ -949,6 +973,101 @@ name_tests = [
 			"stateProvince": "Santa Cruz Island",
 		},
 		{"genovesa"}   # locality wins; stateProvince not consulted
+	),
+	# county is now last among adj=0 fields; a more specific field takes priority.
+	# Older records sometimes listed the provincial capital (San Cristóbal) as
+	# county even for specimens collected on other islands.
+	(
+		{
+			"locality":         "espanola island",
+			"verbatimLocality": "",
+			"island":           "",
+			"islandGroup":      "",
+			"county":           "San Cristóbal",   # administrative capital, not collection site
+		},
+		{"espanola"}   # locality wins; county not consulted
+	),
+	# islandGroup field tests
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"islandGroup":      "Fernandina Island",
+			"county":           "",
+		},
+		{"fernandina"}
+	),
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"islandGroup":      "Pinta Island",
+			"county":           "",
+		},
+		{"pinta"}
+	),
+	# locationRemarks field tests
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"county":           "",
+			"stateProvince":    "",
+			"locationRemarks":  "Collected on the north coast of Isabela Island",
+		},
+		{"isabela"}
+	),
+	(
+		{
+			"locality":         "",
+			"verbatimLocality": "",
+			"island":           "",
+			"county":           "",
+			"stateProvince":    "",
+			"locationRemarks":  "San Cristobal Island, near Wreck Bay",
+		},
+		{"san cristobal"}
+	),
+	# occurrenceRemarks field tests
+	(
+		{
+			"locality":           "",
+			"verbatimLocality":   "",
+			"island":             "",
+			"county":             "",
+			"stateProvince":      "",
+			"locationRemarks":    "",
+			"occurrenceRemarks":  "Specimen collected on Floreana Island during 1938 expedition",
+		},
+		{"floreana"}
+	),
+	(
+		{
+			"locality":           "",
+			"verbatimLocality":   "",
+			"island":             "",
+			"county":             "",
+			"stateProvince":      "",
+			"locationRemarks":    "",
+			"occurrenceRemarks":  "Santiago Island, rocky shore",
+		},
+		{"santiago"}
+	),
+	# locality still takes priority over occurrenceRemarks
+	(
+		{
+			"locality":          "genovesa island",
+			"verbatimLocality":  "",
+			"island":            "",
+			"county":            "",
+			"stateProvince":     "",
+			"locationRemarks":   "",
+			"occurrenceRemarks": "also recorded from santa cruz island",
+		},
+		{"genovesa"}   # locality wins; occurrenceRemarks not consulted
 	),
 ]
 
