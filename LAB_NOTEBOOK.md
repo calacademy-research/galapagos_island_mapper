@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-15  
+**Last updated:** 2026-05-19  
 
 ---
 
@@ -32,6 +32,7 @@ galapagos_island_mapper/
 │   ├── gbif_galapagos_gadm_download.R  # Pipeline C — GADM ECU.9_1 ground-truth pull
 │   ├── load_galapagos_data.R        # Helper: loads all pipeline outputs into R
 │   ├── species_by_island.R          # Species × island summary tables
+│   ├── build_galapagos_thesaurus.R  # Builds taxonomic name thesaurus (GBIF + IOC + CDF)
 │   └── [other diagnostic scripts]
 ├── analyze.sh              # Shell wrapper: runs analyze.py on a TSV input
 └── LAB_NOTEBOOK.md         # This file
@@ -233,6 +234,77 @@ A diagnostic block (added 2026-05-14) prints records where `best` is NA/empty/"-
 
 ---
 
+## Taxonomic Thesaurus (`r/build_galapagos_thesaurus.R`)
+
+### Purpose
+
+The thesaurus addresses a known gap in the pipeline: GBIF's global taxonomic backbone normalizes names globally but does not account for geography-specific splits. Species recently split from mainland relatives (Darwin's finches, Galápagos mockingbirds, marine iguanas, giant tortoises, Galápagos flycatcher *Pyrocephalus nanus*) have historical records filed under the old lumped name. The thesaurus builds a lookup table that maps every unique species name in the pipeline outputs to:
+
+- A GBIF-accepted name (via `rgbif::name_backbone_checklist()`)
+- IOC canonical name (for birds; cross-referenced against `data/ioc-names-14.1.xml`)
+- CDF Galápagos status (`endemic`, `resident`, `visitor`, `vagrant`, `introduced`, `extirpated`) and expected islands
+- A flag for any manual synonym override applied
+
+### Data sources
+
+| Source | File | Role |
+|---|---|---|
+| GBIF backbone | queried via `rgbif` API | Canonical accepted names, match type/confidence, species keys |
+| IOC World Bird List v14.1 | `data/ioc-names-14.1.xml` | Canonical English names and IOC binomial for birds |
+| CDF Galápagos checklist | `data/cdf_galapagos_checklist.tsv` | Galápagos-specific status and expected-island data |
+| Manual synonyms (20 entries) | hardcoded in script | Overrides for well-known discrepancies not resolved by GBIF backbone |
+
+**CDF checklist setup:** Download the checklist from https://www.darwinfoundation.org/en/datazone/checklist and save as `data/cdf_galapagos_checklist.tsv` in the repo. The script gracefully degrades if this file is absent (outputs NA for `galapagos_status` and `expected_islands`).
+
+### Output: `galapagos_thesaurus.tsv`
+
+Written to `~/Dropbox/Galapagos_data/output/galapagos_thesaurus.tsv`. Columns:
+
+| Column | Description |
+|---|---|
+| `original_name` | Name as it appears in the pipeline specimen files |
+| `accepted_name` | GBIF-accepted binomial (after backbone lookup + manual overrides) |
+| `gbif_match_type` | EXACT / FUZZY / HIGHERRANK / NONE |
+| `gbif_match_confidence` | GBIF confidence score (0–100) |
+| `gbif_status` | ACCEPTED / SYNONYM / DOUBTFUL / etc. |
+| `gbif_species_key` | GBIF taxon key for the accepted species |
+| `ioc_match` | IOC English common name (birds only) |
+| `galapagos_status` | CDF status: endemic/resident/visitor/vagrant/introduced/extirpated |
+| `expected_islands` | CDF list of islands where species is expected |
+| `common_name` | Common name (from IOC for birds; CDF for others) |
+| `cdf_notes` | Notes from CDF checklist |
+| `override_applied` | TRUE if a manual synonym override was used |
+| `class` | Vertebrate class |
+| `species_in_data` | TRUE if this name appears in at least one pipeline specimen file |
+
+### Caching
+
+GBIF backbone queries are cached to `~/Dropbox/Galapagos_data/output/gbif_backbone_cache.tsv`. On subsequent runs, cached names are skipped and only new names are sent to the API. Delete the cache file to force a full re-query.
+
+### Manual synonyms (20 entries)
+
+These override GBIF backbone results where the backbone does not resolve the Galápagos-specific split correctly. Sourced from `src/taxonomy.py`'s `synonyms` dict:
+
+```r
+MANUAL_SYNONYMS <- c(
+  "Geospiza magnirostris"        = "Geospiza magnirostris",
+  "Certhidea olivacea"           = "Certhidea olivacea",
+  "Pinaroloxias inornata"        = "Pinaroloxias inornata",
+  "Nesomimus parvulus"           = "Mimus parvulus",
+  "Mimus trifasciatus"           = "Mimus trifasciatus",
+  "Mimus melanotis"              = "Mimus melanotis",
+  "Mimus macdonaldi"             = "Mimus macdonaldi",
+  "Pyrocephalus rubinus"         = "Pyrocephalus nanus",
+  # ... (20 total)
+)
+```
+
+### Integration plan (future)
+
+Once the thesaurus is validated, `species_by_island.R` will join on `accepted_name` instead of the raw `species_name`, and can optionally filter or flag records where `galapagos_status` is NA (species never expected in the Galápagos) or where the record's island is not in `expected_islands`.
+
+---
+
 ## Known Issues and Limitations
 
 ### 1. Taxonomic synonymy across the Galápagos/mainland boundary
@@ -278,6 +350,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-14 | `a281dba` | Minor R script updates |
 | 2026-05-15 | `662decc` | Add `stateProvince` to name resolver (adj=-1); add best-NA diagnostic to species_by_island.R; add `"sta cruz"` alias in islands.py |
 | 2026-05-15 | `6735c87` | Add `islandGroup`, `locationRemarks`, `occurrenceRemarks` to name resolver; move `county` to last among adj=0 fields |
+| 2026-05-19 | *(pending)* | Add `r/build_galapagos_thesaurus.R` — taxonomic name thesaurus builder (GBIF backbone + IOC + CDF) |
 
 ---
 
