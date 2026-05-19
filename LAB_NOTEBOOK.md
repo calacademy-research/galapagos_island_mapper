@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-19  
+**Last updated:** 2026-05-19 (session 2)  
 
 ---
 
@@ -254,7 +254,16 @@ The thesaurus addresses a known gap in the pipeline: GBIF's global taxonomic bac
 | CDF Galápagos checklist | `data/cdf_galapagos_checklist.tsv` | Galápagos-specific status and expected-island data |
 | Manual synonyms (20 entries) | hardcoded in script | Overrides for well-known discrepancies not resolved by GBIF backbone |
 
-**CDF checklist setup:** Download the checklist from https://www.darwinfoundation.org/en/datazone/checklist and save as `data/cdf_galapagos_checklist.tsv` in the repo. The script gracefully degrades if this file is absent (outputs NA for `galapagos_status` and `expected_islands`).
+**CDF checklist setup:** Download the per-taxon checklist CSVs from https://www.darwinfoundation.org/en/datazone/checklist and place them all in `data/cdf_galapagos_checklists/`. The script reads all `*.csv` files in that directory and combines them with `bind_rows` — add or replace individual files freely and re-run without any concatenation step. The script gracefully degrades if the directory is absent or empty (outputs NA for `galapagos_status` and `expected_islands`).
+
+**CDF CSV structure notes (from inspection of downloaded files):**
+- All per-taxon CSVs share an identical column structure.
+- Files are Latin-1 encoded; the script handles this via `locale(encoding = "latin1")`.
+- Species name must be constructed from two separate columns: `Genus` + `Specific Epithtet` (note the typo in the column name — "Epithtet" with double-t — this is consistent across all CDF files).
+- `Taxon Status == "1"` = valid species; `"3"` = subspecies or informal taxon (e.g. "Alsophis sp.") — the script filters to status 1 only.
+- The Reptilia file uses `Class = "Reptilia"` for both squamates and tortoises; the script splits by `Order` (Squamata / Testudines) to match our pipeline's `TARGET_CLASSES`.
+- Island presence is encoded as `"True"` / `""` in per-island columns named with Spanish island names. These are pivoted to a pipe-separated `expected_islands` string using canonical lowercase English names.
+- `Origin` + `Suborigin` encode Galápagos status: `Na`/`En` → endemic; `Na`/`Mi` → visitor; `Na`/`Va` or `Ac` → vagrant; `In`/any → introduced; etc.
 
 ### Output: `galapagos_thesaurus.tsv`
 
@@ -351,6 +360,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-15 | `662decc` | Add `stateProvince` to name resolver (adj=-1); add best-NA diagnostic to species_by_island.R; add `"sta cruz"` alias in islands.py |
 | 2026-05-15 | `6735c87` | Add `islandGroup`, `locationRemarks`, `occurrenceRemarks` to name resolver; move `county` to last among adj=0 fields |
 | 2026-05-19 | `bfbe6cf` | Add `r/build_galapagos_thesaurus.R` — taxonomic name thesaurus builder (GBIF backbone + IOC + CDF) |
+| 2026-05-19 | *(pending)* | Update thesaurus script to read multiple CDF checklist CSVs from a directory; add Latin-1 encoding handling, class mapping (Reptilia→Squamata/Testudines), island-presence pivot, Origin/Suborigin status derivation |
 
 ---
 
