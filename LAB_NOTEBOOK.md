@@ -33,6 +33,7 @@ galapagos_island_mapper/
 │   ├── load_galapagos_data.R        # Helper: loads all pipeline outputs into R
 │   ├── species_by_island.R          # Species × island summary tables
 │   ├── build_galapagos_thesaurus.R  # Builds taxonomic name thesaurus (GBIF + IOC + CDF)
+│   ├── refine_taxonomy.R            # Applies thesaurus + island-informed corrections
 │   └── [other diagnostic scripts]
 ├── analyze.sh              # Shell wrapper: runs analyze.py on a TSV input
 └── LAB_NOTEBOOK.md         # This file
@@ -76,6 +77,9 @@ Downloads all GBIF records (any `basisOfRecord`) that GBIF has already tagged wi
 | `galapagos_unresolved_multipull.tsv` | B | Same as A, multi-pull |
 | `galapagos_gadm_all.tsv` | C | All GBIF types, GADM-filtered |
 | `galapagos_gadm_specimens.tsv` | C | Specimens only, GADM-filtered |
+| `galapagos_specimens_refined.tsv` | post-A | Pipeline A specimens + accepted_name, taxonomy_note |
+| `galapagos_specimens_multipull_refined.tsv` | post-B | Same, Pipeline B |
+| `galapagos_gadm_specimens_refined.tsv` | post-C | Same, Pipeline C |
 | `output/species_by_island/*.tsv` | post | Species × island count and last-year tables |
 
 ---
@@ -314,6 +318,67 @@ Once the thesaurus is validated, `species_by_island.R` will join on `accepted_na
 
 ---
 
+## Record-Level Taxonomy Refinement (`r/refine_taxonomy.R`)
+
+### Purpose
+
+`build_galapagos_thesaurus.R` works at the **name level** — it maps a string to a globally accepted name, but it cannot use island context. `refine_taxonomy.R` works at the **record level**: it applies the thesaurus results and then cross-checks each specimen's assigned island against the CDF expected ranges, making island-informed corrections where the logic is unambiguous.
+
+**Prerequisite:** `build_galapagos_thesaurus.R` must be run first to produce `galapagos_thesaurus.tsv`.
+
+### Two-step logic
+
+**Step 1 — Name-level resolution:** Each specimen's name (`acceptedScientificName` > `species` > `scientificName`, same priority as the thesaurus build) is looked up in the thesaurus to get the GBIF-accepted canonical name, with synonyms and manual overrides already applied.
+
+**Step 2 — Island-informed correction:** Checks whether the Step 1 `accepted_name` is expected on the specimen's `best` island (from CDF `expected_islands`). If not:
+- Extracts the genus from `accepted_name`
+- Looks up which species of that genus the CDF expects on `best`
+- If **exactly one** species is found → reassigns `accepted_name` to it
+- If zero or multiple species → flags as unresolved (no guess made)
+
+The same genus lookup powers **genus-only upgrades**: if `species` is blank but `genus` is present, and exactly one species of that genus is CDF-expected on the island, the record is upgraded to species level.
+
+### Output columns added
+
+| Column | Description |
+|---|---|
+| `accepted_name` | Refined canonical name (or original if refinement not possible) |
+| `taxonomy_note` | Controlled-vocabulary flag (see below) |
+| `lookup_name` | The join key used to query the thesaurus (audit trail) |
+
+### `taxonomy_note` values
+
+| Value | Meaning |
+|---|---|
+| `accepted` | Already canonical; island within CDF expected range |
+| `synonym_resolved` | GBIF backbone synonym resolved |
+| `manual_override` | Manual synonym from `taxonomy.py` applied |
+| `genus_to_species_by_island` | Genus-only → species (1 CDF species on island) |
+| `species_reassigned_by_island` | Not expected on island → reassigned to single CDF-expected congeneric |
+| `genus_ambiguous` | Genus-only; multiple species expected on island |
+| `genus_no_cdf_match` | Genus-only; genus absent from CDF for this island |
+| `island_mismatch_ambiguous` | Not expected on island; multiple congeneric alternatives |
+| `island_mismatch_unresolved` | Not expected on island; no congeneric in CDF for this island |
+| `not_in_thesaurus` | Name not in thesaurus (uncommon visitor, very recent description) |
+| `class_not_targeted` | Class outside TARGET_CLASSES; no refinement attempted |
+| `no_name` | Record has no usable identification |
+
+### Design principles
+
+- **No records dropped.** Every input record appears in the output.
+- **No guessing.** Island-informed corrections are only applied when the answer is unambiguous (exactly one congeneric species expected on the island). Ambiguous cases are flagged, not silently resolved.
+- **Full audit trail.** The original `species`, `acceptedScientificName`, and `scientificName` columns are unchanged. `lookup_name` records which field was used as the join key. `taxonomy_note` records exactly what was done.
+- **The Mimus example:** A specimen recorded as *Mimus trifasciatus* from Española gets `accepted_name = "Mimus macdonaldi"` and `taxonomy_note = "species_reassigned_by_island"` because the CDF only lists M. macdonaldi on Española. A specimen recorded only as "Mimus" from Española gets the same result with `taxonomy_note = "genus_to_species_by_island"`.
+
+### Re-run instructions
+
+```r
+source("r/build_galapagos_thesaurus.R")   # must run first
+source("r/refine_taxonomy.R")             # then this
+```
+
+---
+
 ## Known Issues and Limitations
 
 ### 1. Taxonomic synonymy across the Galápagos/mainland boundary
@@ -361,6 +426,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-15 | `6735c87` | Add `islandGroup`, `locationRemarks`, `occurrenceRemarks` to name resolver; move `county` to last among adj=0 fields |
 | 2026-05-19 | `bfbe6cf` | Add `r/build_galapagos_thesaurus.R` — taxonomic name thesaurus builder (GBIF backbone + IOC + CDF) |
 | 2026-05-19 | `a9f1337` | Update thesaurus script to read multiple CDF checklist CSVs from a directory; add Latin-1 encoding handling, class mapping (Reptilia→Squamata/Testudines), island-presence pivot, Origin/Suborigin status derivation |
+| 2026-05-19 | *(pending)* | Add `r/refine_taxonomy.R` — record-level taxonomy refinement with island-informed corrections and full audit trail |
 
 ---
 
