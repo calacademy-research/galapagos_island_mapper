@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-19 (session 2)  
+**Last updated:** 2026-05-19 (session 3)  
 
 ---
 
@@ -254,9 +254,11 @@ The thesaurus addresses a known gap in the pipeline: GBIF's global taxonomic bac
 | Source | File | Role |
 |---|---|---|
 | GBIF backbone | queried via `rgbif` API | Canonical accepted names, match type/confidence, species keys |
-| IOC World Bird List v14.1 | `data/ioc-names-14.1.xml` | Canonical English names and IOC binomial for birds |
-| CDF Galápagos checklist | `data/cdf_galapagos_checklist.tsv` | Galápagos-specific status and expected-island data |
+| AviList 2025 | `data/AviList-v2025-11Jun-extended.xlsx` | World bird checklist (successor to IOC + Clements); English names for birds |
+| CDF Galápagos checklist | `data/cdf_galapagos_checklists/` | Galápagos-specific status and expected-island data |
 | Manual synonyms (20 entries) | hardcoded in script | Overrides for well-known discrepancies not resolved by GBIF backbone |
+
+**Note on IOC World Bird List:** The IOC list (`data/ioc-names-14.1.xml`) was previously used for cross-referencing bird names. It has been superseded by AviList 2025, which unifies the IOC and Clements checklists into a single world standard. The XML file is retained in the repo for reference but is no longer used by any script.
 
 **CDF checklist setup:** Download the per-taxon checklist CSVs from https://www.darwinfoundation.org/en/datazone/checklist and place them all in `data/cdf_galapagos_checklists/`. The script reads all `*.csv` files in that directory and combines them with `bind_rows` — add or replace individual files freely and re-run without any concatenation step. The script gracefully degrades if the directory is absent or empty (outputs NA for `galapagos_status` and `expected_islands`).
 
@@ -281,7 +283,8 @@ Written to `~/Dropbox/Galapagos_data/output/galapagos_thesaurus.tsv`. Columns:
 | `gbif_match_confidence` | GBIF confidence score (0–100) |
 | `gbif_status` | ACCEPTED / SYNONYM / DOUBTFUL / etc. |
 | `gbif_species_key` | GBIF taxon key for the accepted species |
-| `ioc_match` | IOC English common name (birds only) |
+| `avilist_match` | AviList 2025 match status: exact / query_name_only / not_in_avilist (birds only) |
+| `avilist_english_name` | AviList 2025 English name (birds only; also used as `common_name` fallback when CDF has none) |
 | `galapagos_status` | CDF status: endemic/resident/visitor/vagrant/introduced/extirpated |
 | `expected_islands` | CDF list of islands where species is expected |
 | `common_name` | Common name (from IOC for birds; CDF for others) |
@@ -427,6 +430,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-19 | `bfbe6cf` | Add `r/build_galapagos_thesaurus.R` — taxonomic name thesaurus builder (GBIF backbone + IOC + CDF) |
 | 2026-05-19 | `a9f1337` | Update thesaurus script to read multiple CDF checklist CSVs from a directory; add Latin-1 encoding handling, class mapping (Reptilia→Squamata/Testudines), island-presence pivot, Origin/Suborigin status derivation |
 | 2026-05-19 | `cbf3746` | Add `r/refine_taxonomy.R` — record-level taxonomy refinement with island-informed corrections and full audit trail |
+| 2026-05-19 | *(pending)* | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
 
 ---
 

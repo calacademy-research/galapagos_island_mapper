@@ -9,9 +9,9 @@
 #   2. Resolving each name against the GBIF taxonomic
 #      backbone (via name_backbone_checklist) to normalise
 #      synonyms -> accepted names and flag doubtful records
-#   3. Cross-referencing the IOC World Bird List (already
-#      in data/ioc-names-14.1.xml) for bird-specific
-#      canonical ordering
+#   3. Cross-referencing the AviList 2025 checklist (already
+#      in data/AviList-v2025-11Jun-extended.xlsx) for bird-
+#      specific canonical names and English common names
 #   4. Joining against the CDF Galapagos species checklists
 #      (data/cdf_galapagos_checklists/*.csv -- see note)
 #      to add Galapagos-specific status and island ranges
@@ -54,7 +54,7 @@ library(stringr)
 library(tidyr)
 library(purrr)
 library(rgbif)    # name_backbone_checklist()
-library(xml2)     # reading ioc-names-14.1.xml
+library(readxl)   # reading AviList-v2025-*.xlsx
 
 # =========================================================
 # CONFIG
@@ -72,9 +72,12 @@ SPECIMEN_FILES <- c(
 )
 
 # Reference files (in repo)
-REPO_ROOT <- path.expand("~/galapagos_island_mapper")
-IOC_FILE  <- file.path(REPO_ROOT, "data", "ioc-names-14.1.xml")
-CDF_DIR   <- file.path(REPO_ROOT, "data", "cdf_galapagos_checklists")
+REPO_ROOT    <- path.expand("~/galapagos_island_mapper")
+AVILIST_FILE <- file.path(REPO_ROOT, "data", "AviList-v2025-11Jun-extended.xlsx")
+AVILIST_SHEET <- "AviList v2025 extended"   # sheet name inside the workbook
+CDF_DIR      <- file.path(REPO_ROOT, "data", "cdf_galapagos_checklists")
+# Note: the IOC World Bird List (data/ioc-names-14.1.xml) has been superseded
+# by AviList and is no longer used.
 
 # Vertebrate classes to include (as they appear in GBIF specimen files)
 TARGET_CLASSES <- c("Aves", "Mammalia", "Testudines", "Squamata")
@@ -121,7 +124,7 @@ derive_galapagos_status <- function(origin, suborigin) {
 
 # ---- Manual synonym overrides from src/taxonomy.py -----
 # Bird names that appear in GBIF data but map to a
-# different IOC-accepted name.  Keep in sync with the
+# different AviList-accepted name.  Keep in sync with the
 # synonyms dict in taxonomy.py.
 MANUAL_SYNONYMS <- c(
   "Oceanodroma castro"      = "Hydrobates castro",
@@ -289,51 +292,81 @@ cat(sprintf("  Applied %d manual overrides.\n",
             sum(backbone$override_applied, na.rm = TRUE)))
 
 # =========================================================
-# SECTION 4: CROSS-REFERENCE IOC NAMES (birds only)
+# SECTION 4: CROSS-REFERENCE AVILIST 2025 (birds only)
 # =========================================================
-# For Aves, cross-check accepted names against the IOC
-# World Bird List to flag names absent from the IOC list
-# (possible very recent splits, or non-avian taxa slipping
-# through class filtering).
+# AviList 2025 is the successor to both the IOC World Bird
+# List and the Clements checklist, intended as a single
+# unified world bird checklist.
+#
+# For Aves, this section:
+#   1. Reads species names and English names from AviList
+#   2. Joins to backbone to retrieve avilist_english_name
+#      for each matched bird species
+#   3. Sets avilist_match: "exact" / "query_name_only" /
+#      "not_in_avilist" for diagnosing nomenclature gaps
+#
+# avilist_english_name is later used in Section 5 as a
+# fallback for common_name when the CDF has no English name.
 
-cat("\nSection 4: Cross-referencing IOC World Bird List for Aves...\n")
+cat("\nSection 4: Cross-referencing AviList 2025 for Aves...\n")
 
-if (file.exists(IOC_FILE)) {
-  ioc_xml   <- read_xml(IOC_FILE)
-  ioc_names <- xml_find_all(ioc_xml, ".//species/latin_name") %>%
-    xml_text() %>%
-    trimws()
-  cat(sprintf("  IOC list contains %d species.\n", length(ioc_names)))
+if (file.exists(AVILIST_FILE)) {
+  avilist <- read_excel(AVILIST_FILE,
+                        sheet     = AVILIST_SHEET,
+                        col_types = "text") %>%
+    # Keep only species-level rows (file also has order/family/genus/subspecies)
+    filter(Taxon_rank == "species") %>%
+    select(
+      avilist_scientific = Scientific_name,
+      avilist_english    = English_name_AviList
+    ) %>%
+    filter(!is.na(avilist_scientific))
 
+  cat(sprintf("  AviList 2025 contains %d species.\n", nrow(avilist)))
+
+  # Join English name via accepted name first, then query name as fallback
   backbone <- backbone %>%
+    left_join(
+      avilist %>% rename(avilist_eng_accepted = avilist_english),
+      by = c("gbif_accepted_name" = "avilist_scientific")
+    ) %>%
+    left_join(
+      avilist %>% rename(avilist_eng_query = avilist_english),
+      by = c("query_name" = "avilist_scientific")
+    ) %>%
     mutate(
-      ioc_match = case_when(
-        class != "Aves"                   ~ NA_character_,
-        gbif_accepted_name %in% ioc_names ~ "exact",
-        query_name         %in% ioc_names ~ "query_name_only",
-        TRUE                              ~ "not_in_ioc"
+      avilist_english_name = coalesce(avilist_eng_accepted,
+                                      avilist_eng_query),
+      avilist_match = case_when(
+        class != "Aves"                    ~ NA_character_,
+        !is.na(avilist_eng_accepted)       ~ "exact",
+        !is.na(avilist_eng_query)          ~ "query_name_only",
+        TRUE                               ~ "not_in_avilist"
       )
-    )
+    ) %>%
+    select(-avilist_eng_accepted, -avilist_eng_query)
 
   backbone %>%
     filter(class == "Aves") %>%
-    count(ioc_match, sort = TRUE) %>%
+    count(avilist_match, sort = TRUE) %>%
     print()
 
-  not_in_ioc <- backbone %>%
-    filter(class == "Aves", ioc_match == "not_in_ioc") %>%
+  not_in_avilist <- backbone %>%
+    filter(class == "Aves", avilist_match == "not_in_avilist") %>%
     select(query_name, gbif_accepted_name, gbif_match_type,
            gbif_match_confidence)
-  if (nrow(not_in_ioc) > 0) {
+  if (nrow(not_in_avilist) > 0) {
     cat(sprintf(
-      "\n  %d Aves names not found in IOC list (review recommended):\n",
-      nrow(not_in_ioc)
+      "\n  %d Aves names not found in AviList (review recommended):\n",
+      nrow(not_in_avilist)
     ))
-    print(not_in_ioc, n = 30)
+    print(not_in_avilist, n = 30)
   }
 } else {
-  message("  IOC file not found at: ", IOC_FILE)
-  backbone <- backbone %>% mutate(ioc_match = NA_character_)
+  message("  AviList file not found at: ", AVILIST_FILE)
+  backbone <- backbone %>%
+    mutate(avilist_match        = NA_character_,
+           avilist_english_name = NA_character_)
 }
 
 # =========================================================
@@ -527,6 +560,20 @@ if (length(cdf_files) == 0) {
   }
 }
 
+# ---- Fill common_name gap with AviList English name -----
+# For Aves records where the CDF join left common_name blank,
+# use the AviList English name as a fallback.  Non-bird
+# classes are unaffected (avilist_english_name is NA there).
+if ("avilist_english_name" %in% names(backbone)) {
+  n_filled <- sum(is.na(backbone$common_name) &
+                  !is.na(backbone$avilist_english_name), na.rm = TRUE)
+  backbone <- backbone %>%
+    mutate(common_name = coalesce(common_name, avilist_english_name))
+  if (n_filled > 0)
+    cat(sprintf("\n  Filled %d missing common_name values from AviList.\n",
+                n_filled))
+}
+
 # =========================================================
 # SECTION 6: ASSEMBLE AND WRITE THESAURUS
 # =========================================================
@@ -544,8 +591,9 @@ thesaurus <- backbone %>%
     gbif_match_confidence,
     gbif_status,
     gbif_species_key,
-    # IOC cross-reference (Aves only)
-    ioc_match,
+    # AviList 2025 cross-reference (Aves only)
+    avilist_match,
+    avilist_english_name,
     # CDF Galapagos-specific data
     galapagos_status,
     cdf_iucn_status,
