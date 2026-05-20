@@ -235,9 +235,18 @@ if (length(new_names) > 0) {
   cat("  All names already in cache.\n")
 }
 
-# Join backbone results back to our name list
+# Join backbone results back to our name list.
+# Pre-select only the backbone columns we use; this avoids
+# column-name collisions (the GBIF cache also has a "class"
+# column from its own taxonomic hierarchy) that would cause
+# dplyr to rename our "class" column to "class.x".
 backbone <- names_to_resolve %>%
-  left_join(backbone_cache, by = "query_name") %>%
+  left_join(
+    backbone_cache %>%
+      select(query_name, species, canonicalName,
+             matchType, confidence, status, speciesKey),
+    by = "query_name"
+  ) %>%
   mutate(
     # Prefer backbone's accepted species name; fall back to query
     gbif_accepted_name    = case_when(
