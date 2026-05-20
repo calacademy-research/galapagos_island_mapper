@@ -15,6 +15,34 @@
 # extra "archipelago" column on the right for records that
 # are confirmed Galápagos (stateProvince) but could not be
 # assigned to a specific island by analyze.py.
+#
+# ── Thesaurus integration (USE_REFINED = TRUE) ───────────
+# When USE_REFINED = TRUE the script reads the output of
+# refine_taxonomy.R (*_refined.tsv), which adds two columns:
+#
+#   accepted_name   — canonical name after synonym resolution
+#                     and island-informed corrections
+#   taxonomy_note   — controlled vocab flag for each record
+#
+# Row labels in the output tables are then accepted_name
+# rather than the raw GBIF species string.  Key benefits:
+#
+#   • Synonyms are collapsed: records filed under old names
+#     (e.g. "Nesomimus parvulus") count toward the accepted
+#     species ("Mimus parvulus")
+#   • Island corrections: a record of "Mimus trifasciatus"
+#     from Española goes into the M. macdonaldi row
+#   • Genus upgrades: "Mimus sp." from Española is counted
+#     under M. macdonaldi when it is the only option
+#
+# Set USE_REFINED = FALSE to reproduce the pre-thesaurus
+# output using raw GBIF species names.
+#
+# Unresolved records (galapagos_unresolved.tsv) are always
+# joined to the thesaurus for name-level synonym resolution
+# when THESAURUS_FILE is available, even when USE_REFINED is
+# FALSE (island-informed corrections cannot apply to records
+# without a specific island assignment).
 # =========================================================
 
 library(dplyr)
@@ -26,9 +54,19 @@ library(stringr)
 # CONFIG
 # =========================================================
 
-INPUT_FILE       <- "~/Dropbox/Galapagos_data/output/galapagos_specimens.tsv"
-UNRESOLVED_FILE  <- "~/Dropbox/Galapagos_data/output/galapagos_unresolved.tsv"
-OUTPUT_DIR       <- "~/Dropbox/Galapagos_data/output/species_by_island/"
+OUTPUT_DIR       <- "~/Dropbox/Galapagos_data/output/"
+UNRESOLVED_FILE  <- file.path(OUTPUT_DIR, "galapagos_unresolved.tsv")
+THESAURUS_FILE   <- file.path(OUTPUT_DIR, "galapagos_thesaurus.tsv")
+SPECIES_OUT_DIR  <- file.path(OUTPUT_DIR, "species_by_island/")
+
+# ── Input file selection ──────────────────────────────────
+# USE_REFINED = TRUE  → read refined specimens (accepted_name
+#                       already populated by refine_taxonomy.R)
+# USE_REFINED = FALSE → read raw specimens (pre-thesaurus
+#                       behaviour; species_name from GBIF fields)
+USE_REFINED    <- TRUE
+REFINED_FILE   <- file.path(OUTPUT_DIR, "galapagos_specimens_refined.tsv")
+RAW_FILE       <- file.path(OUTPUT_DIR, "galapagos_specimens.tsv")
 
 # Terrestrial vertebrate classes to summarize
 TARGET_CLASSES <- c("Aves", "Mammalia", "Testudines", "Squamata")
@@ -40,34 +78,79 @@ REQUIRE_SPECIES <- TRUE
 # SECTION 1: LOAD AND PREPARE DATA
 # =========================================================
 
-dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
+dir.create(path.expand(SPECIES_OUT_DIR), recursive = TRUE,
+           showWarnings = FALSE)
+
+# ── Load thesaurus for unresolved-record name resolution ──
+# Even when USE_REFINED = FALSE, the thesaurus is used to
+# resolve synonyms in the unresolved (archipelago) records.
+thesaurus_available <- file.exists(path.expand(THESAURUS_FILE))
+if (thesaurus_available) {
+  thesaurus_names <- read_tsv(
+    THESAURUS_FILE,
+    col_types      = cols(original_name = col_character(),
+                          accepted_name  = col_character(),
+                          .default       = col_skip()),
+    show_col_types = FALSE
+  )
+  cat(sprintf("Loaded thesaurus: %d name mappings.\n", nrow(thesaurus_names)))
+} else {
+  message("Thesaurus not found at: ", THESAURUS_FILE)
+  message("Run build_galapagos_thesaurus.R to enable synonym resolution.")
+  thesaurus_names <- tibble(original_name = character(),
+                            accepted_name  = character())
+}
 
 # ── Island-resolved specimens ─────────────────────────────
-specimens <- read_tsv(
-  INPUT_FILE,
+input_path <- if (USE_REFINED &&
+                  file.exists(path.expand(REFINED_FILE))) {
+  cat("Using refined specimens file (USE_REFINED = TRUE).\n")
+  REFINED_FILE
+} else {
+  if (USE_REFINED)
+    message("Refined file not found -- falling back to raw specimens.\n",
+            "Run refine_taxonomy.R first to enable thesaurus integration.")
+  RAW_FILE
+}
+
+specimens_raw <- read_tsv(
+  input_path,
   col_types      = cols(.default = col_character()),
   show_col_types = FALSE
 )
-cat("Loaded", nrow(specimens), "island-resolved Galápagos specimen records\n")
+cat(sprintf("Loaded %d island-resolved specimen records from %s\n",
+            nrow(specimens_raw), basename(input_path)))
 
 # ── Unresolved but confirmed Galápagos records ────────────
 # These have stateProvince = Galápagos but analyze.py could
-# not place them on a specific island.  We add them as an
+# not place them on a specific island.  They form the
 # "archipelago" column in the output tables.
 unresolved_raw <- read_tsv(
   UNRESOLVED_FILE,
   col_types      = cols(.default = col_character()),
   show_col_types = FALSE
 )
-cat("Loaded", nrow(unresolved_raw), "unresolved Galápagos records\n\n")
+cat(sprintf("Loaded %d unresolved Galápagos records\n\n",
+            nrow(unresolved_raw)))
 
-# Shared helper: resolve best species name from available fields
-add_species_name <- function(df) {
+# ── Helper: raw species name from GBIF fields ─────────────
+# Priority: species > acceptedScientificName > scientificName
+# Used for the unresolved file and as fallback when the
+# refined file is absent.
+derive_raw_name <- function(df) {
   df %>%
     mutate(
-      species_name = case_when(
+      raw_name = case_when(
         !is.na(species)                & species                != "" ~ species,
         !is.na(acceptedScientificName) & acceptedScientificName != "" ~ acceptedScientificName,
+        !is.na(scientificName)         & scientificName         != "" ~ scientificName,
+        TRUE ~ NA_character_
+      ),
+      # Lookup key matching the thesaurus build priority order:
+      # acceptedScientificName > species > scientificName
+      lookup_name = case_when(
+        !is.na(acceptedScientificName) & acceptedScientificName != "" ~ acceptedScientificName,
+        !is.na(species)                & species                != "" ~ species,
         !is.na(scientificName)         & scientificName         != "" ~ scientificName,
         TRUE ~ NA_character_
       ),
@@ -75,16 +158,49 @@ add_species_name <- function(df) {
     )
 }
 
-specimens   <- add_species_name(specimens)
-unresolved  <- add_species_name(unresolved_raw)
+# ── Prepare island-resolved specimens ─────────────────────
+if ("accepted_name" %in% names(specimens_raw) &&
+    "taxonomy_note" %in% names(specimens_raw)) {
+  # Refined file: accepted_name and taxonomy_note already present
+  specimens <- specimens_raw %>%
+    mutate(
+      species_name = coalesce(accepted_name,
+                              species,
+                              acceptedScientificName,
+                              scientificName),
+      year_num     = suppressWarnings(as.integer(year))
+    )
+  cat("taxonomy_note breakdown for island-resolved vertebrates:\n")
+  specimens %>%
+    filter(class %in% TARGET_CLASSES) %>%
+    count(taxonomy_note, sort = TRUE) %>%
+    mutate(pct = sprintf("%5.1f%%", 100 * n / sum(n))) %>%
+    print()
+  cat("\n")
+} else {
+  # Raw file: derive species_name from GBIF fields
+  specimens <- specimens_raw %>%
+    derive_raw_name() %>%
+    mutate(species_name = raw_name)
+}
 
-# ── Diagnostic: unexpected best values in specimens ───────────
-# galapagos_specimens.tsv should only contain records with a
+# ── Prepare unresolved records ────────────────────────────
+# Apply name-level thesaurus resolution (synonym collapsing)
+# even though island-informed corrections cannot apply here.
+unresolved <- unresolved_raw %>%
+  derive_raw_name() %>%
+  left_join(thesaurus_names,
+            by = c("lookup_name" = "original_name")) %>%
+  mutate(
+    # Use thesaurus accepted_name when available; fall back to raw
+    species_name = coalesce(accepted_name, raw_name)
+  ) %>%
+  select(-raw_name, -lookup_name, -accepted_name)
+
+# ── Diagnostic: unexpected best values in specimens ───────
+# galapagos_specimens*.tsv should only contain records with a
 # specific island in 'best'.  Any NA / empty / "-" values here
-# indicate a gap in the upstream filter in gbif_ecuador_download.R
-# or gbif_data_ingester.R.  Print details so we can trace which
-# filter condition (A latlon / B GADM / C province / D locality /
-# E English name) is letting them through.
+# indicate a gap in the upstream filter.
 bad_best <- specimens %>%
   filter(is.na(best) | best == "" | best == "-")
 
@@ -94,7 +210,7 @@ if (nrow(bad_best) > 0) {
     nrow(bad_best)
   ))
   cat("Diagnosing which filter conditions they satisfy:\n")
-  GALAPAGOS_PATTERN   <- regex("al[aá]?pag", ignore_case = TRUE)
+  GALAPAGOS_PATTERN      <- regex("al[aá]?pag", ignore_case = TRUE)
   ENGLISH_ISLAND_PATTERN <- regex(
     paste("\\balbemarle\\b", "\\bnarborough\\b", "\\bindefatigable\\b",
           "\\bchatham island\\b", "\\bcharles island\\b", "\\bjames island\\b",
@@ -173,7 +289,9 @@ for (cls in TARGET_CLASSES) {
     class_data <- class_data %>% filter(!is.na(species_name))
     n_dropped  <- n_before - nrow(class_data)
     if (n_dropped > 0)
-      message(sprintf("  %s: dropped %d island-resolved records with no species name", cls, n_dropped))
+      message(sprintf(
+        "  %s: dropped %d island-resolved records with no species name",
+        cls, n_dropped))
   }
 
   # ── Unresolved (archipelago-level) data for this class ───
@@ -189,7 +307,8 @@ for (cls in TARGET_CLASSES) {
 
   cat(sprintf(
     "  %d island-resolved records, %d species, %d islands\n  %d archipelago-only records, %d species\n",
-    nrow(class_data), n_distinct(class_data$species_name), n_distinct(class_data$best),
+    nrow(class_data), n_distinct(class_data$species_name),
+    n_distinct(class_data$best),
     nrow(arch_data),  n_distinct(arch_data$species_name)
   ))
 
@@ -208,7 +327,8 @@ for (cls in TARGET_CLASSES) {
 
   counts_wide <- append_archipelago(counts_wide, arch_counts, "n_records")
 
-  out_counts <- file.path(OUTPUT_DIR, paste0(tolower(cls), "_record_counts.tsv"))
+  out_counts <- file.path(SPECIES_OUT_DIR,
+                           paste0(tolower(cls), "_record_counts.tsv"))
   write_tsv(counts_wide, out_counts)
   cat("  Written:", out_counts, "\n")
 
@@ -229,11 +349,13 @@ for (cls in TARGET_CLASSES) {
 
   year_wide <- append_archipelago(year_wide, arch_years, "last_year")
 
-  out_year <- file.path(OUTPUT_DIR, paste0(tolower(cls), "_last_year.tsv"))
+  out_year <- file.path(SPECIES_OUT_DIR,
+                         paste0(tolower(cls), "_last_year.tsv"))
   write_tsv(year_wide, out_year)
   cat("  Written:", out_year, "\n\n")
 
 }
 
-cat("Done.  Output files are in:", OUTPUT_DIR, "\n")
-
+cat("Done.  Output files are in:", SPECIES_OUT_DIR, "\n")
+if (USE_REFINED)
+  cat("Row labels are accepted_name from the taxonomic thesaurus.\n")
