@@ -430,7 +430,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-19 | `bfbe6cf` | Add `r/build_galapagos_thesaurus.R` — taxonomic name thesaurus builder (GBIF backbone + IOC + CDF) |
 | 2026-05-19 | `a9f1337` | Update thesaurus script to read multiple CDF checklist CSVs from a directory; add Latin-1 encoding handling, class mapping (Reptilia→Squamata/Testudines), island-presence pivot, Origin/Suborigin status derivation |
 | 2026-05-19 | `cbf3746` | Add `r/refine_taxonomy.R` — record-level taxonomy refinement with island-informed corrections and full audit trail |
-| 2026-05-19 | *(pending)* | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
+| 2026-05-19 | `aad07e3` | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
 
 ---
 
