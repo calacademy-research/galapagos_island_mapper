@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-19 (session 3)  
+**Last updated:** 2026-05-19 (session 4)  
 
 ---
 
@@ -236,6 +236,8 @@ The "archipelago" column in these tables comes from `galapagos_unresolved.tsv` (
 
 A diagnostic block (added 2026-05-14) prints records where `best` is NA/empty/"-" in the specimens dataframe, flagging which filter conditions they satisfy — useful for tracing any future upstream filter gaps.
 
+**Thesaurus integration (added 2026-05-19):** With `USE_REFINED = TRUE` (default), the script reads `galapagos_specimens_refined.tsv` (output of `refine_taxonomy.R`) and uses the `accepted_name` column as the row label in output tables instead of the raw GBIF species string. Synonyms collapse, island-corrected names land in the right rows, and genus upgrades are applied. Unresolved records are always joined to `galapagos_thesaurus.tsv` for synonym resolution. Set `USE_REFINED = FALSE` to reproduce pre-thesaurus output.
+
 ---
 
 ## Taxonomic Thesaurus (`r/build_galapagos_thesaurus.R`)
@@ -431,6 +433,8 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-19 | `a9f1337` | Update thesaurus script to read multiple CDF checklist CSVs from a directory; add Latin-1 encoding handling, class mapping (Reptilia→Squamata/Testudines), island-presence pivot, Origin/Suborigin status derivation |
 | 2026-05-19 | `cbf3746` | Add `r/refine_taxonomy.R` — record-level taxonomy refinement with island-informed corrections and full audit trail |
 | 2026-05-19 | `aad07e3` | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
+| 2026-05-19 | `e56ea5f` | Fix `class` column collision in thesaurus script backbone join (GBIF cache has its own `class` column; pre-select only needed columns) |
+| 2026-05-19 | `627b5f7` | Integrate taxonomic thesaurus into `species_by_island.R`: `USE_REFINED = TRUE` reads refined specimens and uses `accepted_name` for row labels; unresolved records joined to thesaurus for synonym resolution |
 
 ---
 
