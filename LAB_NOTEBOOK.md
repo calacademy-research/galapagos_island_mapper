@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-20 (session 5)  
+**Last updated:** 2026-05-21 (session 5)  
 
 ---
 
@@ -295,6 +295,14 @@ Written to `~/Dropbox/Galapagos_data/output/galapagos_thesaurus.tsv`. Columns:
 | `class` | Vertebrate class |
 | `species_in_data` | TRUE if this name appears in at least one pipeline specimen file |
 
+### CDF-only supplement (added 2026-05-21)
+
+The thesaurus is seeded from names found in the pipeline's specimen files. If a species only ever appears at genus level in those files (e.g. every Asio record has `species = ""` and no "Asio flammeus" ever appears), it never enters the backbone and its CDF `expected_islands` data is never populated. `refine_taxonomy.R`'s genus×island lookup therefore finds nothing for that genus and genus-only records remain as "Asio sp." in output tables.
+
+**Fix:** At the end of the CDF join (Section 5), the script appends one extra row per CDF species that is not already represented as a `gbif_accepted_name` in the backbone. These rows carry `expected_islands` and `galapagos_status` but no specimen provenance; they are flagged `gbif_match_type = "CDF_ONLY"`. They do not trigger any new GBIF API calls.
+
+This also enables correct handling of recently split Galápagos endemics: if the CDF lists *Butorides sundevalli* but GBIF records still carry the old lumped name *B. striata*, the CDF_ONLY row gives `refine_taxonomy.R` enough information to reassign *B. striata* from a Galápagos island to *B. sundevalli* via `species_reassigned_by_island`.
+
 ### Caching
 
 GBIF backbone queries are cached to `~/Dropbox/Galapagos_data/output/gbif_backbone_cache.tsv`. On subsequent runs, cached names are skipped and only new names are sent to the API. Delete the cache file to force a full re-query.
@@ -435,7 +443,8 @@ The `vertebrates` dataset in `species_by_island.R` now explicitly filters out re
 | 2026-05-19 | `aad07e3` | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
 | 2026-05-19 | `e56ea5f` | Fix `class` column collision in thesaurus script backbone join (GBIF cache has its own `class` column; pre-select only needed columns) |
 | 2026-05-19 | `627b5f7` | Integrate taxonomic thesaurus into `species_by_island.R`: `USE_REFINED = TRUE` reads refined specimens and uses `accepted_name` for row labels; unresolved records joined to thesaurus for synonym resolution |
-| 2026-05-20 | — | Add defensive `best` filter to `vertebrates` in `species_by_island.R`; update Known Issue #5 (resolved); investigate mainland contamination — filter logic in `gbif_ecuador_download.R` confirmed intact; likely cause is stale `galapagos_specimens.tsv` from before filter improvements |
+| 2026-05-20 | `2514b36` | Add defensive `best` filter to `vertebrates` in `species_by_island.R`; update Known Issue #5 (resolved); investigate mainland contamination — filter logic in `gbif_ecuador_download.R` confirmed intact; likely cause is stale `galapagos_specimens.tsv` from before filter improvements |
+| 2026-05-21 | — | Fix genus-only upgrade failures in `build_galapagos_thesaurus.R`: supplement backbone with CDF-only species so that genera recorded only at genus level in specimen files (e.g. Asio, Butorides, Certhidea, Mimus on single-species islands) can still be upgraded to species level by `refine_taxonomy.R` |
 
 ---
 

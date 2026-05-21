@@ -567,6 +567,74 @@ if (length(cdf_files) == 0) {
       arrange(class, gbif_accepted_name) %>%
       print(n = 30)
   }
+
+  # ---- Supplement with CDF species absent from specimen files ----
+  #
+  # Problem: the backbone above only contains names that actually
+  # appear in the pipeline's specimen files.  If a species is
+  # recorded only at genus level in those files (e.g. every Asio
+  # record is "Asio sp." with no species value), the species-level
+  # name (e.g. "Asio flammeus") is never queried, never enters the
+  # backbone, and its CDF expected_islands data is never populated.
+  # As a result, refine_taxonomy.R's genus×island lookup finds
+  # nothing for that genus, and genus-only records cannot be
+  # upgraded to species level — they remain as "Asio sp." in the
+  # output tables.
+  #
+  # Fix: append one extra row per CDF species that is not already
+  # represented as a gbif_accepted_name in the backbone.  These
+  # rows carry expected_islands and galapagos_status but have no
+  # specimen provenance; they are flagged with
+  #   gbif_match_type = "CDF_ONLY"
+  # so they can easily be identified or excluded for other purposes.
+  # They do NOT trigger GBIF backbone queries (no new API calls).
+  #
+  # This also handles recently split Galápagos endemics (e.g.
+  # Butorides sundevalli split from B. striata) when the CDF lists
+  # the split name but GBIF records still carry the old lumped name:
+  # the island-informed correction in refine_taxonomy.R will then
+  # reassign "Butorides striata" records on Galápagos islands to
+  # "Butorides sundevalli" via species_reassigned_by_island.
+
+  already_in_backbone <- unique(na.omit(backbone$gbif_accepted_name))
+
+  cdf_supplement <- cdf %>%
+    filter(!cdf_name %in% already_in_backbone,
+           !is.na(expected_islands),
+           !is.na(pipeline_class)) %>%
+    transmute(
+      class                 = pipeline_class,
+      query_name            = cdf_name,
+      species_in_data       = NA_character_,
+      gbif_accepted_name    = cdf_name,
+      gbif_match_type       = "CDF_ONLY",
+      gbif_match_confidence = NA_integer_,
+      gbif_status           = NA_character_,
+      gbif_species_key      = NA_character_,
+      override_applied      = FALSE,
+      avilist_match         = NA_character_,
+      avilist_english_name  = NA_character_,
+      galapagos_status,
+      cdf_iucn_status,
+      expected_islands,
+      common_name,
+      cdf_notes
+    )
+
+  if (nrow(cdf_supplement) > 0) {
+    cat(sprintf(
+      "\n  Supplemented backbone with %d CDF-only species (absent from specimen files).\n",
+      nrow(cdf_supplement)
+    ))
+    cat("  These enable genus-level records to be upgraded to species level.\n")
+    cdf_supplement %>%
+      arrange(class, gbif_accepted_name) %>%
+      select(class, gbif_accepted_name, galapagos_status, expected_islands) %>%
+      print(n = Inf)
+    backbone <- bind_rows(backbone, cdf_supplement)
+  } else {
+    cat("\n  No CDF-only species to add (all CDF species already in backbone).\n")
+  }
 }
 
 # ---- Fill common_name gap with AviList English name -----
