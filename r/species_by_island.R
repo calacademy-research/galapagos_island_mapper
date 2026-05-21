@@ -11,10 +11,12 @@
 #                                was collected per species
 #                                per island
 #
-# In both tables: rows = species, columns = islands, with an
-# extra "archipelago" column on the right for records that
-# are confirmed Galápagos (stateProvince) but could not be
-# assigned to a specific island by analyze.py.
+# In both tables: rows = species sorted in taxonomic order
+# (taxon_order → family → species_name); columns = islands,
+# with an extra "archipelago" column on the right for records
+# that are confirmed Galápagos (stateProvince) but could not
+# be assigned to a specific island by analyze.py.  The first
+# three columns are species_name, taxon_order, and family.
 #
 # ── Thesaurus integration (USE_REFINED = TRUE) ───────────
 # When USE_REFINED = TRUE the script reads the output of
@@ -264,14 +266,15 @@ cat(sprintf("Unresolved vertebrate records      : %d\n\n", nrow(unres_verts)))
 
 # Build a wide species × island matrix from a long summary.
 # fill_val fills cells where the species was not recorded on an island.
+# Row order is left to the caller (taxonomic sort applied after joining
+# the taxon_order_lookup below).
 make_matrix <- function(long_df, value_col, fill_val) {
   long_df %>%
     pivot_wider(
       names_from  = best,
       values_from = !!sym(value_col),
       values_fill = fill_val
-    ) %>%
-    arrange(species_name)
+    )
 }
 
 # Append an "archipelago" column to a wide matrix.
@@ -320,6 +323,19 @@ for (cls in TARGET_CLASSES) {
     nrow(arch_data),  n_distinct(arch_data$species_name)
   ))
 
+  # ── Taxonomic sort-order lookup ───────────────────────────
+  # Derived from both island-resolved and archipelago records so that
+  # species appearing only in the "archipelago" column are also covered.
+  # GBIF's 'order' column is renamed to 'taxon_order' to avoid shadowing
+  # base::order().  Where a name maps to multiple GBIF orders/families
+  # (data-entry inconsistencies) the first occurrence is kept.
+  taxon_order_lookup <- bind_rows(
+    class_data %>% select(species_name, taxon_order = order, family),
+    arch_data  %>% select(species_name, taxon_order = order, family)
+  ) %>%
+    filter(!is.na(species_name)) %>%
+    distinct(species_name, .keep_all = TRUE)
+
   # ── Table 1: record counts ──────────────────────────────
 
   counts_long <- class_data %>%
@@ -333,7 +349,10 @@ for (cls in TARGET_CLASSES) {
     group_by(species_name) %>%
     summarise(n_records = n(), .groups = "drop")
 
-  counts_wide <- append_archipelago(counts_wide, arch_counts, "n_records")
+  counts_wide <- append_archipelago(counts_wide, arch_counts, "n_records") %>%
+    left_join(taxon_order_lookup, by = "species_name") %>%
+    arrange(taxon_order, family, species_name) %>%
+    select(species_name, taxon_order, family, everything())
 
   out_counts <- file.path(SPECIES_OUT_DIR,
                            paste0(tolower(cls), "_record_counts.tsv"))
@@ -355,7 +374,10 @@ for (cls in TARGET_CLASSES) {
     group_by(species_name) %>%
     summarise(last_year = max(year_num), .groups = "drop")
 
-  year_wide <- append_archipelago(year_wide, arch_years, "last_year")
+  year_wide <- append_archipelago(year_wide, arch_years, "last_year") %>%
+    left_join(taxon_order_lookup, by = "species_name") %>%
+    arrange(taxon_order, family, species_name) %>%
+    select(species_name, taxon_order, family, everything())
 
   out_year <- file.path(SPECIES_OUT_DIR,
                          paste0(tolower(cls), "_last_year.tsv"))
