@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-21 (session 5)  
+**Last updated:** 2026-05-21 (session 6)  
 
 ---
 
@@ -444,7 +444,8 @@ The `vertebrates` dataset in `species_by_island.R` now explicitly filters out re
 | 2026-05-19 | `e56ea5f` | Fix `class` column collision in thesaurus script backbone join (GBIF cache has its own `class` column; pre-select only needed columns) |
 | 2026-05-19 | `627b5f7` | Integrate taxonomic thesaurus into `species_by_island.R`: `USE_REFINED = TRUE` reads refined specimens and uses `accepted_name` for row labels; unresolved records joined to thesaurus for synonym resolution |
 | 2026-05-20 | `2514b36` | Add defensive `best` filter to `vertebrates` in `species_by_island.R`; update Known Issue #5 (resolved); investigate mainland contamination — filter logic in `gbif_ecuador_download.R` confirmed intact; likely cause is stale `galapagos_specimens.tsv` from before filter improvements |
-| 2026-05-21 | — | Fix genus-only upgrade failures in `build_galapagos_thesaurus.R`: supplement backbone with CDF-only species so that genera recorded only at genus level in specimen files (e.g. Asio, Butorides, Certhidea, Mimus on single-species islands) can still be upgraded to species level by `refine_taxonomy.R` |
+| 2026-05-21 | `d2b2c28` | Fix genus-only upgrade failures in `build_galapagos_thesaurus.R`: supplement backbone with CDF-only species so that genera recorded only at genus level in specimen files (e.g. Asio, Butorides, Certhidea, Mimus on single-species islands) can still be upgraded to species level by `refine_taxonomy.R` |
+| 2026-05-21 | `e8b3d3d` | Sort species×island output tables in taxonomic order (`taxon_order → family → species_name`) using GBIF's `order` and `family` fields; `taxon_order` and `family` prepended as output columns |
 
 ---
 
