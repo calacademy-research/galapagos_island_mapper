@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-19 (session 4)  
+**Last updated:** 2026-05-20 (session 5)  
 
 ---
 
@@ -402,8 +402,8 @@ The name resolver matches "Santiago" within "Morona-Santiago" (a mainland provin
 ### 4. `best == ""` gap in Step 1 filter
 The Step 1 filter `filter(best != "-", !is.na(best))` would pass records where `best` is an empty string `""`. Although `analyze.py` should never write `""` (it uses `best.loc or "-"`), the filter has been updated to also check `best != ""` as a defensive measure.
 
-### 5. `species_by_island.R` does not filter on `best`
-The script loads `galapagos_specimens.tsv` and uses the `best` column directly without checking for NA/empty values. A diagnostic block flags these if they occur. The underlying fix should always be in the upstream pipeline script.
+### 5. ~~`species_by_island.R` does not filter on `best`~~ (resolved 2026-05-20)
+The `vertebrates` dataset in `species_by_island.R` now explicitly filters out records where `best` is NA, empty, or `"-"`, as a defensive guard against stale or mixed input files. This is redundant with `gbif_ecuador_download.R` Step 1 for freshly generated input, but prevents silent contamination if an older specimens file is accidentally used. The best-NA diagnostic block remains in place to log any upstream gaps.
 
 ---
 
@@ -435,6 +435,7 @@ The script loads `galapagos_specimens.tsv` and uses the `best` column directly w
 | 2026-05-19 | `aad07e3` | Replace IOC XML with AviList 2025 Excel in `build_galapagos_thesaurus.R`; add `avilist_match` and `avilist_english_name` output columns; use AviList English names as `common_name` fallback for birds |
 | 2026-05-19 | `e56ea5f` | Fix `class` column collision in thesaurus script backbone join (GBIF cache has its own `class` column; pre-select only needed columns) |
 | 2026-05-19 | `627b5f7` | Integrate taxonomic thesaurus into `species_by_island.R`: `USE_REFINED = TRUE` reads refined specimens and uses `accepted_name` for row labels; unresolved records joined to thesaurus for synonym resolution |
+| 2026-05-20 | — | Add defensive `best` filter to `vertebrates` in `species_by_island.R`; update Known Issue #5 (resolved); investigate mainland contamination — filter logic in `gbif_ecuador_download.R` confirmed intact; likely cause is stale `galapagos_specimens.tsv` from before filter improvements |
 
 ---
 

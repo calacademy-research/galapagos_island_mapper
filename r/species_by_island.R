@@ -243,8 +243,16 @@ if (nrow(bad_best) > 0) {
   cat("\nAll specimen records have a valid island in 'best'. Good.\n")
 }
 
-# Filter both to target vertebrate classes
-vertebrates  <- specimens  %>% filter(class %in% TARGET_CLASSES)
+# Filter to target vertebrate classes.
+# Also explicitly exclude any island-resolved records with a missing or
+# placeholder 'best' value — these should not exist (gbif_ecuador_download.R
+# Step 1 already guarantees a valid 'best' in galapagos_specimens.tsv), but
+# the filter is kept as a defensive guard against stale or mixed input files.
+# NOTE: unres_verts intentionally retains records where best is NA / "-";
+# they are the source of the "archipelago" column in the output tables.
+vertebrates  <- specimens  %>%
+  filter(class %in% TARGET_CLASSES) %>%
+  filter(!is.na(best) & best != "" & best != "-")
 unres_verts  <- unresolved %>% filter(class %in% TARGET_CLASSES)
 
 cat(sprintf("Island-resolved vertebrate records : %d\n", nrow(vertebrates)))
