@@ -240,7 +240,8 @@ ENGLISH_ISLAND_PATTERN <- regex(
   ignore_case = TRUE
 )
 
-n_resolved <- sum(ecuador_data_merged$best != "-" & !is.na(ecuador_data_merged$best))
+n_resolved <- sum(ecuador_data_merged$best != "-" & ecuador_data_merged$best != "" &
+                  !is.na(ecuador_data_merged$best))
 
 # NOTE: Section 4 converts all columns to character for join compatibility.
 # decimalLongitude_std is therefore character here; we must convert back to
@@ -251,8 +252,11 @@ n_resolved <- sum(ecuador_data_merged$best != "-" & !is.na(ecuador_data_merged$b
 galapagos_specimens <- ecuador_data_merged %>%
   mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
 
-  # Step 1: keep only records that analyze.py assigned to a Galápagos island
-  filter(best != "-", !is.na(best)) %>%
+  # Step 1: keep only records that analyze.py assigned to a Galápagos island.
+  # Exclude "-" (analyze.py sentinel for unresolved), "" (empty string — a
+  # second sentinel observed in results.tsv that the old filter missed), and
+  # NA (produced when clean_characters converts "" or "NA" strings).
+  filter(best != "-", best != "", !is.na(best)) %>%
 
   # Step 2: drop records whose coordinates place them clearly on the mainland.
   # Records with no coordinates (NA lon_num) are kept — resolved by name/locality.
@@ -334,7 +338,7 @@ galapagos_specimens <- ecuador_data_merged %>%
 # ── Filter summary ────────────────────────────────────────
 n_after_step1 <- n_resolved
 n_after_step2 <- ecuador_data_merged %>%
-  filter(best != "-", !is.na(best)) %>%
+  filter(best != "-", best != "", !is.na(best)) %>%
   mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
   filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
   nrow()
@@ -349,7 +353,7 @@ cat(sprintf(
 # ── Which condition kept each record? ────────────────────
 step3_pool <- ecuador_data_merged %>%
   mutate(lon_num = suppressWarnings(as.numeric(decimalLongitude_std))) %>%
-  filter(best != "-", !is.na(best)) %>%
+  filter(best != "-", best != "", !is.na(best)) %>%
   filter(is.na(lon_num) | lon_num <= MAINLAND_LON_CUTOFF) %>%
   mutate(
     .latlon_confirmed   = !is.na(latlon) & latlon != "-",
@@ -577,7 +581,7 @@ cat("Written:", out_file, "\n")
 # data in less-standard fields (habitat, verbatimLocality,
 # georeferenceRemarks, locationRemarks, occurrenceRemarks, etc.)
 galapagos_unresolved <- ecuador_data_merged %>%
-  filter(best == "-" | is.na(best)) %>%
+  filter(best == "-" | best == "" | is.na(best)) %>%
   filter(str_detect(coalesce(stateProvince, ""), GALAPAGOS_PATTERN)) %>%
   filter(
     coalesce(level1Gid, "") == "ECU.9_1" |            # (B) GADM confirmed
