@@ -184,6 +184,14 @@ ecuador_data_std <- ecuador_data_std %>%
   clean_characters() %>%
   mutate(across(everything(), as.character))
 
+# Drop any empty-named columns before the join.  GBIF TSV downloads sometimes
+# have a trailing tab in the header row, which read_tsv turns into a column
+# named "".  That propagates through all subsequent pipes and causes RStudio
+# to throw an "invalid first argument / zero-length variable name" caching
+# error when it tries to display the resulting data frame.
+ecuador_data_std <- ecuador_data_std %>% select(-any_of(""))
+results          <- results          %>% select(-any_of(""))
+
 ecuador_data_merged <- inner_join(ecuador_data_std, results, by = "gbifID")
 
 # Sanity check: records in the data file that have no entry in results.tsv
