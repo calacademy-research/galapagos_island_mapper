@@ -1,23 +1,27 @@
 # gbif museum lists
 
-# get data by either running gbif_galapagos_summarizer.r or by using the following:
-galapagos_data <- fread("/Users/jdumbacher/Dropbox/Galapagos_data/output/galapagos_data.tsv") 
+# get data by either running gbif_ecuador_download.R
+# source("~/galapagos_island_mapper/r/gbif_ecuador_download.R")       # 1. ingest the gbif data
+# source("~/galapagos_island_mapper/r/build_galapagos_thesaurus.R")   # 2. build the thesaurus
+# source("~/galapagos_island_mapper/r/refine_taxonomy.R")             # 3. apply it to specimens
+# source("~/galapagos_island_mapper/r/species_by_island.R")           # 4. build the output tables  
+#
+# and then by using the following:
 
-galapagos_specimens <- galapagos_data %>% 
-  filter(year<2000, !(basisOfRecord=="HUMAN_OBSERVATION")) %>% 
+galapagos_specimens <- fread("/Users/jdumbacher/Dropbox/Galapagos_data/output/galapagos_specimens_refined.tsv") 
+
+galapagos_specimens_abbrev <- galapagos_specimens %>% 
   select(gbifID, publisher, institutionID, institutionCode, basisOfRecord, occurrenceID, catalogNumber, sex, lifeStage, preparations, disposition, decimalLongitude, decimalLatitude, year, species, species, acceptedScientificName, acceptedTaxonKey, latlon, name, best) %>% 
   arrange(best, species, institutionID, year) %>% 
   arrange(institutionCode)
 
-darwin_core_verts <- galapagos_data %>% 
+darwin_core_verts <- galapagos_specimens %>% 
   filter(class %in% c("Aves","Mammalia","Squamata","Testudines")) %>%  
-  filter(year<2000, !(basisOfRecord=="HUMAN_OBSERVATION")) %>% 
   select(gbifID, publisher, institutionID, institutionCode, basisOfRecord, occurrenceID, catalogNumber, sex, lifeStage, preparations, disposition, decimalLongitude, decimalLatitude, year, species, acceptedScientificName, acceptedTaxonKey, latlon, name, best, class, species, recordedBy) %>% 
   arrange(best, species, institutionID, year) %>% 
   arrange(institutionCode)
 
-museums <- galapagos_data_all %>% 
-  filter(year<2015, !(basisOfRecord=="HUMAN_OBSERVATION")) %>% 
+museums <- galapagos_specimens %>% 
   group_by(institutionCode, year) %>%
   arrange(year) %>% 
   count() %>% 
@@ -30,8 +34,6 @@ museum_summary <- museums %>%
   ) %>% 
   mutate(total = rowSums(across(2:166), na.rm = TRUE)) %>% 
   arrange(desc(total))
-
-museum_summary$institutionCode
 
 museums_verts <- darwin_core_verts %>% 
   group_by(institutionCode, year) %>%
@@ -56,4 +58,12 @@ write_tsv(museum_summary_verts, "/Users/jdumbacher/Dropbox/Galapagos_data/output
 # deep dive into top collections
 mvz <- darwin_core_verts %>% 
   filter(institutionCode == "MVZ") %>% 
+  arrange(year)
+
+cas <- darwin_core_verts %>% 
+  filter(institutionCode == "CAS") %>% 
+  arrange(year)
+
+cdf <- galapagos_specimens %>% 
+  filter(institutionCode == "CDF") %>% 
   arrange(year)
