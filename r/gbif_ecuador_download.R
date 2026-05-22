@@ -16,7 +16,10 @@
 #   3. bash analyze.sh <ecuador_occurrences.tsv>
 #      → results.tsv
 #   4. Re-run this script (REDOWNLOAD=FALSE) to merge
-#      analyze.py results and write galapagos_specimens.tsv
+#      analyze.py results and write three output files:
+#        galapagos_specimens.tsv  — island-resolved records
+#        galapagos_unresolved.tsv — confirmed Galápagos, no island
+#        galapagos_all.tsv        — both combined; best=NA for unresolved
 # =========================================================
 
 library(dplyr)
@@ -632,4 +635,50 @@ galapagos_unresolved %>%
 unresolved_file <- file.path(OUTPUT_DIR, "galapagos_unresolved.tsv")
 write_tsv(galapagos_unresolved, unresolved_file)
 cat("\nWritten:", unresolved_file, "\n")
+
+# ── 6c. Combined Galápagos specimen file ──────────────────
+# Merges island-resolved and unresolved records into a single
+# file for analyses that benefit from having all confirmed
+# Galápagos specimens together (e.g., museum holdings,
+# collector histories, species lists for the whole archipelago).
+#
+# 'best' encodes resolution status in the combined file:
+#   non-NA  → assigned to a specific island  (from galapagos_specimens)
+#   NA      → confirmed Galápagos, island unknown (from galapagos_unresolved)
+#
+# Use filter(!is.na(best)) for island-resolved work, or
+# filter(is.na(best)) to isolate unresolved records.
+galapagos_all <- bind_rows(
+  galapagos_specimens,
+  galapagos_unresolved %>%
+    mutate(best = NA_character_)   # mark as unresolved in combined file
+)
+
+cat(sprintf(
+  "\nCombined Galápagos file: %d total records (%d resolved + %d unresolved)\n",
+  nrow(galapagos_all),
+  nrow(galapagos_specimens),
+  nrow(galapagos_unresolved)
+))
+
+all_file <- file.path(OUTPUT_DIR, "galapagos_all.tsv")
+write_tsv(galapagos_all, all_file)
+cat("Written:", all_file, "\n")
+
+# ── Diagnostic: why does analyze.py write best="" ? ───────
+# Records in results.tsv with best="" slip past the old "-"/NA
+# filter.  Inspect name and latlon for those records to
+# understand what triggered analyze.py's partial assignment.
+cat("\n--- analyze.py best='' diagnostic ---\n")
+results_raw <- fread(RESULTS_TSV, na.strings = NULL)
+n_empty_best <- sum(results_raw$best == "", na.rm = TRUE)
+cat(sprintf("Records with best='' in results.tsv: %d\n", n_empty_best))
+if (n_empty_best > 0) {
+  empty_best_recs <- results_raw %>% filter(best == "")
+  cat("  name / latlon breakdown (what triggered analyze.py):\n")
+  empty_best_recs %>%
+    count(name, latlon, sort = TRUE) %>%
+    slice_head(n = 15) %>%
+    print()
+}
 
