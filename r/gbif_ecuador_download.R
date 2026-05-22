@@ -23,6 +23,7 @@ library(dplyr)
 library(stringr)
 library(readr)
 library(tidyr)
+library(purrr)
 library(rgbif)
 library(data.table)
 
@@ -413,6 +414,114 @@ if (nrow(c_only) > 0) {
   c_only %>% count(best, sort = TRUE) %>% print()
   cat("  Top species:\n")
   c_only %>% count(species, sort = TRUE) %>% slice_head(n = 10) %>% print()
+}
+
+# ── Condition E breakdown: which English names are matching? ─────────────────
+# For each English island name pattern, reports:
+#   n_total        — records in step3_pool where the pattern matches any of
+#                    locality / verbatimLocality / island
+#   n_island_field — subset where the match is in the 'island' field
+#                    (expected: deliberate historical labelling — benign)
+#   n_locality_only — subset where the match is in locality/verbatimLocality
+#                    but NOT in the island field (noisier; worth inspecting)
+cat("\n--- Condition E breakdown: which English island names are matching? ---\n")
+english_name_patterns <- list(
+  albemarle         = "\\balbemarle\\b",         # Isabela
+  narborough        = "\\bnarborough\\b",         # Fernandina
+  indefatigable     = "\\bindefatigable\\b",      # Santa Cruz
+  chatham_island    = "\\bchatham island\\b",     # San Cristóbal
+  charles_island    = "\\bcharles island\\b",     # Floreana
+  james_island      = "\\bjames island\\b",       # Santiago
+  tower_island      = "\\btower island\\b",       # Genovesa
+  bindloe           = "\\bbindloe\\b",            # Marchena
+  abingdon          = "\\babingdon\\b",           # Pinta
+  jervis_island     = "\\bjervis island\\b",      # Rábida
+  barrington_island = "\\bbarrington island\\b",  # Santa Fé
+  culpepper         = "\\bculpepper\\b",          # Darwin
+  wenman            = "\\bwenman\\b",             # Wolf
+  north_seymour     = "\\bnorth seymour\\b",      # North Seymour
+  south_seymour     = "\\bsouth seymour\\b",      # Baltra
+  duncan_island     = "\\bduncan island\\b"       # Pinzón
+)
+e_combined_text <- paste(
+  coalesce(step3_pool$locality,         ""),
+  coalesce(step3_pool$verbatimLocality, ""),
+  coalesce(step3_pool$island,           ""),
+  sep = " "
+)
+purrr::imap_dfr(english_name_patterns, function(pat, nm) {
+  tibble(
+    name             = nm,
+    n_total          = sum(str_detect(e_combined_text,
+                                      regex(pat, ignore_case = TRUE)), na.rm = TRUE),
+    n_island_field   = sum(str_detect(coalesce(step3_pool$island, ""),
+                                      regex(pat, ignore_case = TRUE)), na.rm = TRUE),
+    n_locality_only  = sum(
+      str_detect(e_combined_text, regex(pat, ignore_case = TRUE)) &
+      !str_detect(coalesce(step3_pool$island, ""), regex(pat, ignore_case = TRUE)),
+      na.rm = TRUE
+    )
+  )
+}) %>%
+  filter(n_total > 0) %>%
+  arrange(desc(n_total)) %>%
+  print()
+
+# ── Condition D sub-field breakdown ──────────────────────────────────────────
+# Shows how many records in step3_pool trigger the Galápagos pattern in each
+# individual field that feeds condition D.  High counts in occurrenceRemarks /
+# locationRemarks are worth inspecting — those fields sometimes mention
+# "Galápagos" in a comparative or taxonomic context rather than as a
+# collection locality, which would be a false positive.
+cat("\n--- Condition D sub-field breakdown ---\n")
+cat("(how many records match GALAPAGOS_PATTERN in each locality field)\n")
+tribble(
+  ~field,               ~n,
+  "locality",           sum(str_detect(coalesce(step3_pool$locality,          ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "verbatimLocality",   sum(str_detect(coalesce(step3_pool$verbatimLocality,  ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "island",             sum(str_detect(coalesce(step3_pool$island,            ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "islandGroup",        sum(str_detect(coalesce(step3_pool$islandGroup,       ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "county",             sum(str_detect(coalesce(step3_pool$county,            ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "occurrenceRemarks",  sum(str_detect(coalesce(step3_pool$occurrenceRemarks, ""), GALAPAGOS_PATTERN), na.rm = TRUE),
+  "locationRemarks",    sum(str_detect(coalesce(step3_pool$locationRemarks,   ""), GALAPAGOS_PATTERN), na.rm = TRUE)
+) %>%
+  arrange(desc(n)) %>%
+  print()
+
+# Sample of records where occurrenceRemarks or locationRemarks is the
+# ONLY field triggering condition D (no match in the direct locality fields).
+# These are the most likely condition D false positives.
+cat("\nRecords kept by condition D via occurrenceRemarks/locationRemarks only\n")
+cat("(no Galápagos text in locality, verbatimLocality, island, islandGroup, or county):\n")
+d_remarks_only <- step3_pool %>%
+  filter(
+    !str_detect(coalesce(locality,         ""), GALAPAGOS_PATTERN),
+    !str_detect(coalesce(verbatimLocality, ""), GALAPAGOS_PATTERN),
+    !str_detect(coalesce(island,           ""), GALAPAGOS_PATTERN),
+    !str_detect(coalesce(islandGroup,      ""), GALAPAGOS_PATTERN),
+    !str_detect(coalesce(county,           ""), GALAPAGOS_PATTERN),
+    str_detect(
+      paste(coalesce(occurrenceRemarks, ""), coalesce(locationRemarks, ""), sep = " "),
+      GALAPAGOS_PATTERN
+    )
+  )
+cat(sprintf("  Count: %d records\n", nrow(d_remarks_only)))
+if (nrow(d_remarks_only) > 0) {
+  cat("  Top species:\n")
+  d_remarks_only %>% count(species, sort = TRUE) %>% slice_head(n = 10) %>% print()
+  cat("  Sample occurrenceRemarks (up to 5):\n")
+  d_remarks_only %>%
+    filter(!is.na(occurrenceRemarks)) %>%
+    slice_head(n = 5) %>%
+    pull(occurrenceRemarks) %>%
+    cat(sep = "\n---\n")
+  cat("\n  Sample locationRemarks (up to 5):\n")
+  d_remarks_only %>%
+    filter(!is.na(locationRemarks)) %>%
+    slice_head(n = 5) %>%
+    pull(locationRemarks) %>%
+    cat(sep = "\n---\n")
+  cat("\n")
 }
 
 # =========================================================
