@@ -537,6 +537,26 @@ if (nrow(d_remarks_only) > 0) {
 # =========================================================
 
 # ── 6a. Main output: confirmed Galápagos specimens ────────
+
+# Sanity check: galapagos_specimens should never contain records
+# with best = NA / "" / "-" after the Step 1 filter.  Report any
+# that survive so we can diagnose the source immediately.
+bad_best_output <- galapagos_specimens %>%
+  filter(is.na(best) | best == "" | best == "-")
+if (nrow(bad_best_output) > 0) {
+  warning(sprintf(
+    "%d records in galapagos_specimens have bad 'best' value (NA/empty/'-').\n",
+    nrow(bad_best_output)
+  ))
+  cat("  Bad 'best' value breakdown:\n")
+  bad_best_output %>% count(best) %>% print()
+  cat("  Top stateProvince values among bad-best records:\n")
+  bad_best_output %>% count(stateProvince, sort = TRUE) %>%
+    slice_head(n = 10) %>% print()
+} else {
+  cat("Sanity check passed: all records in galapagos_specimens have a valid 'best' value.\n")
+}
+
 out_file <- file.path(OUTPUT_DIR, "galapagos_specimens.tsv")
 write_tsv(galapagos_specimens, out_file)
 cat("Written:", out_file, "\n")
