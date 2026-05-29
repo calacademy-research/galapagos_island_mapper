@@ -1,5 +1,5 @@
 # gbif museum lists
-
+#
 # get data by either running gbif_ecuador_download.R
 # source("~/galapagos_island_mapper/r/gbif_ecuador_download.R")       # 1. ingest the gbif data
 # source("~/galapagos_island_mapper/r/build_galapagos_thesaurus.R")   # 2. build the thesaurus
@@ -64,6 +64,31 @@ cas <- darwin_core_verts %>%
   filter(institutionCode == "CAS") %>% 
   arrange(year)
 
+cas_herps <- darwin_core_verts %>% 
+  filter(institutionCode == "CAS") %>% 
+  filter(class=="Squamata") %>% 
+  arrange(year)
+
+cdf <- darwin_core_verts %>% 
+  filter(institutionCode == "CDF") %>% 
+  arrange(year)
+
 cdf <- galapagos_specimens %>% 
   filter(institutionCode == "CDF") %>% 
   arrange(year)
+
+cas_tortoises <- darwin_core_verts %>% 
+  filter(institutionCode == "CAS") %>% 
+  filter(class=="Testudines") %>% 
+  arrange(year)
+
+cas_all <- galapagos_specimens %>% 
+  filter(institutionCode == "CAS") %>% 
+  arrange(year)
+
+cas_cats <- unique(cas_tortoises$catalogNumber)
+
+msb <- galapagos_specimens %>% 
+  filter(institutionCode=="MSB") %>% 
+  arrange(year)
+

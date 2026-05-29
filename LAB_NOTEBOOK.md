@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-21 (session 6)  
+**Last updated:** 2026-05-27 (session 7)  
 
 ---
 
@@ -73,6 +73,7 @@ Downloads all GBIF records (any `basisOfRecord`) that GBIF has already tagged wi
 |---|---|---|
 | `galapagos_specimens.tsv` | A | Island-resolved, filtered specimens |
 | `galapagos_unresolved.tsv` | A | Confirmed Galápagos, no specific island |
+| `galapagos_all.tsv` | A | Combined: resolved + unresolved (`best = NA` for unresolved) |
 | `galapagos_specimens_multipull.tsv` | B | Same as A, multi-pull |
 | `galapagos_unresolved_multipull.tsv` | B | Same as A, multi-pull |
 | `galapagos_gadm_all.tsv` | C | All GBIF types, GADM-filtered |
@@ -235,6 +236,23 @@ Reads `galapagos_specimens.tsv` and `galapagos_unresolved.tsv` and produces per-
 The "archipelago" column in these tables comes from `galapagos_unresolved.tsv` (records confirmed Galápagos but not resolved to a specific island).
 
 A diagnostic block (added 2026-05-14) prints records where `best` is NA/empty/"-" in the specimens dataframe, flagging which filter conditions they satisfy — useful for tracing any future upstream filter gaps.
+
+### `galapagos_all.tsv` (added 2026-05-21)
+
+A combined output file produced at the end of `gbif_ecuador_download.R`:
+
+```r
+galapagos_all <- bind_rows(
+  galapagos_specimens,
+  galapagos_unresolved %>% mutate(best = NA_character_)
+)
+```
+
+- Island-resolved records retain their `best` value (island name).
+- Unresolved records have `best = NA`.
+- All other columns are identical between the two sources.
+
+**Use case:** Analyses that need the complete set of confirmed Galápagos specimens regardless of whether they could be placed on a specific island — e.g., total collection counts by institution, species richness across the archipelago, or temporal coverage analyses. `galapagos_specimens.tsv` should still be used for island-specific analyses.
 
 **Thesaurus integration (added 2026-05-19):** With `USE_REFINED = TRUE` (default), the script reads `galapagos_specimens_refined.tsv` (output of `refine_taxonomy.R`) and uses the `accepted_name` column as the row label in output tables instead of the raw GBIF species string. Synonyms collapse, island-corrected names land in the right rows, and genus upgrades are applied. Unresolved records are always joined to `galapagos_thesaurus.tsv` for synonym resolution. Set `USE_REFINED = FALSE` to reproduce pre-thesaurus output.
 
@@ -446,27 +464,39 @@ The `vertebrates` dataset in `species_by_island.R` now explicitly filters out re
 | 2026-05-20 | `2514b36` | Add defensive `best` filter to `vertebrates` in `species_by_island.R`; update Known Issue #5 (resolved); investigate mainland contamination — filter logic in `gbif_ecuador_download.R` confirmed intact; likely cause is stale `galapagos_specimens.tsv` from before filter improvements |
 | 2026-05-21 | `d2b2c28` | Fix genus-only upgrade failures in `build_galapagos_thesaurus.R`: supplement backbone with CDF-only species so that genera recorded only at genus level in specimen files (e.g. Asio, Butorides, Certhidea, Mimus on single-species islands) can still be upgraded to species level by `refine_taxonomy.R` |
 | 2026-05-21 | `e8b3d3d` | Sort species×island output tables in taxonomic order (`taxon_order → family → species_name`) using GBIF's `order` and `family` fields; `taxon_order` and `family` prepended as output columns |
+| 2026-05-21 | `cb6d1dc` | Fix RStudio caching error in `gbif_ecuador_download.R`: GBIF TSV downloads have a trailing tab in the header that creates an empty-named column; add `select(-any_of(""))` before the inner join for both `ecuador_data_std` and `results` |
+| 2026-05-21 | `4ca2300` | Add Condition E breakdown diagnostic (per-pattern counts of `n_total`, `n_island_field`, `n_locality_only`) and Condition D sub-field breakdown (per-field counts + sample of remarks-only records) to `gbif_ecuador_download.R` |
+| 2026-05-21 | `c676b51` | Add output sanity check to `gbif_ecuador_download.R`: before `write_tsv`, warns if any record in `galapagos_specimens` has a missing/empty/`"-"` `best` value |
+| 2026-05-21 | `8ec27fd` | Fix empty-string `best` gap: add `best != ""` to all filter instances in `gbif_ecuador_download.R` (Step 1, Step 3 pool, unresolved filter, and resolved-count diagnostic) |
+| 2026-05-21 | `3cf6288` | Add `galapagos_all.tsv` combined output to `gbif_ecuador_download.R`: `bind_rows` of `galapagos_specimens` + `galapagos_unresolved` (with `best = NA`), enabling analyses that need the complete confirmed-Galápagos specimen list regardless of island resolution; add `results.tsv` diagnostic for `best = ""` |
 
 ---
 
 ## Re-running the Pipeline
 
-To regenerate output from scratch after changes to `analyze.py`:
+To regenerate output from scratch after changes to `analyze.py` or the R filter logic:
 
 ```bash
 # 1. From the repo root, run island assignment on the Ecuador input TSV
 bash analyze.sh ~/Dropbox/Galapagos_data/input/ecuador_occurrences.tsv
+```
 
-# 2. In R, source the download/filter script
-source("r/gbif_ecuador_download.R")   # Pipeline A
-source("r/gbif_data_ingester.R")      # Pipeline B (if multi-pull data is current)
+```r
+# 2. Ingest, filter, and write galapagos_specimens.tsv / galapagos_unresolved.tsv / galapagos_all.tsv
+source("r/gbif_ecuador_download.R")          # Pipeline A
+source("r/gbif_data_ingester.R")             # Pipeline B (if multi-pull data is current)
 
-# 3. Load all outputs into a clean environment
-source("r/load_galapagos_data.R")
+# 3. Build the taxonomic thesaurus (skip if only filter logic changed, not taxonomy)
+source("r/build_galapagos_thesaurus.R")
 
-# 4. Generate species × island tables
+# 4. Apply thesaurus + island-informed corrections to all specimen files
+source("r/refine_taxonomy.R")
+
+# 5. Generate species × island tables
 source("r/species_by_island.R")
 ```
+
+**Important:** Steps 3–5 must be re-run whenever Step 2 produces new output files. The refined files (`*_refined.tsv`) are produced from the base specimen files — if the base files are regenerated but the refined files are not, `species_by_island.R` will silently read stale data.
 
 To check pipeline health without a full re-run, look for:
 - **CAS Aves count** (~9,860 records / 23 islands) — the primary sanity check
@@ -475,4 +505,4 @@ To check pipeline health without a full re-run, look for:
 
 ---
 
-*Generated 2026-05-15. For questions, contact Jack Dumbacher (jdumbacher@calacademy.org).*
+*Last updated 2026-05-27. For questions, contact Jack Dumbacher (jdumbacher@calacademy.org).*
