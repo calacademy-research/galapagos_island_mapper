@@ -9,6 +9,9 @@
 # and then by using the following:
 
 galapagos_specimens <- fread("/Users/jdumbacher/Dropbox/Galapagos_data/output/galapagos_specimens_refined.tsv") 
+galapagos_specimens <- fread("/Users/jdumbacher/Dropbox/Galapagos_data/output/galapagos_specimens_refined.tsv") 
+
+
 
 galapagos_specimens_abbrev <- galapagos_specimens %>% 
   select(gbifID, publisher, institutionID, institutionCode, basisOfRecord, occurrenceID, catalogNumber, sex, lifeStage, preparations, disposition, decimalLongitude, decimalLatitude, year, species, species, acceptedScientificName, acceptedTaxonKey, latlon, name, best) %>% 
@@ -91,4 +94,14 @@ cas_cats <- unique(cas_tortoises$catalogNumber)
 msb <- galapagos_specimens %>% 
   filter(institutionCode=="MSB") %>% 
   arrange(year)
+
+Fernandina_tortoises <- specimens %>% 
+  filter(best == "fernandina") %>% 
+  filter(class=="Testudines") %>% 
+  filter(genus=="Chelonoidis")
+  select(gbifID, publisher, institutionID, institutionCode, basisOfRecord, occurrenceID, catalogNumber, sex, lifeStage, preparations, disposition, decimalLongitude, decimalLatitude, year, species, acceptedScientificName, acceptedTaxonKey, latlon, name, best, class, species, recordedBy) %>% 
+  arrange(institutionID, year) 
+
+write_tsv(Fernandina_tortoises, "/Users/jdumbacher/Dropbox/Galapagos_data/output/fernandina_tortoises.tsv")  
+
 
