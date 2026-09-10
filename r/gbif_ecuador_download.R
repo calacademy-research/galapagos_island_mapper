@@ -11,7 +11,7 @@
 #     across time (captures records that may have been removed)
 #
 # Workflow for this script:
-#   1. (Once) Submit GBIF download job, wait for email
+#   1. (Once) Submit GBIF download job (), wait for email
 #   2. Retrieve + import the DwC-A archive (REDOWNLOAD=TRUE)
 #   3. bash analyze.sh <ecuador_occurrences.tsv>
 #      → results.tsv
@@ -34,9 +34,9 @@ library(data.table)
 # CONFIG
 # =========================================================
 
-DOWNLOAD_KEY      <- "0025802-260409193756587"
+DOWNLOAD_KEY      <- "0011413-260903145123482"
 RAW_DATA_DIR      <- "~/Dropbox/Galapagos_data/raw_data_from_gbif/"
-INPUT_TSV         <- "~/Dropbox/Galapagos_data/input/ecuador_occurrences.tsv"
+INPUT_TSV         <- "~/Dropbox/Galapagos_data/input/0011413-260903145123482.tsv"
 RESULTS_TSV       <- "~/galapagos_island_mapper/results.tsv"
 OUTPUT_DIR        <- "~/Dropbox/Galapagos_data/output/"
 
@@ -47,6 +47,48 @@ MAINLAND_LON_CUTOFF <- -88
 # Set TRUE only when you need a fresh GBIF pull.
 # Set FALSE to skip downloading and load from INPUT_TSV.
 REDOWNLOAD <- FALSE
+
+# =========================================================
+# SECTION 0: GBIF DOWNLOAD (set REDOWNLOAD = TRUE to refresh)
+# =========================================================
+
+REDOWNLOAD     <- FALSE   # TRUE = submit a new download request to GBIF
+INPUT_DIR      <- "~/Dropbox/Galapagos_data/input"
+INPUT_TSV      <- file.path(INPUT_DIR, DOWNLOAD_KEY)
+DOWNLOAD_KEY_FILE <- file.path(INPUT_DIR, "last_gbif_download_key.txt")
+
+if (REDOWNLOAD) {
+  cat("Submitting GBIF download request...\n")
+  
+  dl <- occ_download(
+    pred("country", "EC"),
+    pred_in("basisOfRecord", c("PRESERVED_SPECIMEN", "FOSSIL_SPECIMEN",
+                               "MATERIAL_SAMPLE", "MATERIAL_CITATION",
+                               "OCCURRENCE")),
+    format = "DWCA"
+  )
+  
+  # Save the key in case the session is interrupted before the download
+  # completes — retrieve it later with occ_download_get("saved_key")
+  writeLines(as.character(dl[1]), DOWNLOAD_KEY_FILE)
+  cat(sprintf(
+    "Download key: %s  (saved to %s)\n",
+    dl[1], DOWNLOAD_KEY_FILE
+  ))
+  cat("Waiting for GBIF to compile (may take minutes to hours)...\n")
+  
+  occ_download_wait(dl, sleeptime = 60)   # polls every 60 s
+  
+  zip_path <- occ_download_get(dl, path = INPUT_DIR)
+  cat(sprintf("Unzipping to: %s\n", INPUT_TSV))
+  
+  unzip(zip_path, files = "occurrence.txt", exdir = INPUT_DIR)
+  file.rename(file.path(INPUT_DIR, "occurrence.txt"), INPUT_TSV)
+  
+  cat(sprintf("Done. Data saved to: %s\n\n", INPUT_TSV))
+}
+
+# Continue with: read_tsv(INPUT_TSV, ...)
 
 # =========================================================
 # SECTION 1: HELPER FUNCTIONS
