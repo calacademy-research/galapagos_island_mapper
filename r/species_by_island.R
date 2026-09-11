@@ -170,11 +170,16 @@ if ("accepted_name" %in% names(specimens_raw) &&
                               species,
                               acceptedScientificName,
                               scientificName),
-      year_num     = suppressWarnings(as.integer(year))
+      year_num     = suppressWarnings(as.integer(year)),
+      pipeline_class = case_when(
+        class == "Reptilia" & order == "Testudines" ~ "Testudines",
+        class == "Reptilia" & order == "Squamata"   ~ "Squamata",
+        TRUE                                         ~ class
+      )
     )
   cat("taxonomy_note breakdown for island-resolved vertebrates:\n")
   specimens %>%
-    filter(class %in% TARGET_CLASSES) %>%
+    filter(pipeline_class %in% TARGET_CLASSES) %>%
     count(taxonomy_note, sort = TRUE) %>%
     mutate(pct = sprintf("%5.1f%%", 100 * n / sum(n))) %>%
     print()
@@ -183,7 +188,14 @@ if ("accepted_name" %in% names(specimens_raw) &&
   # Raw file: derive species_name from GBIF fields
   specimens <- specimens_raw %>%
     derive_raw_name() %>%
-    mutate(species_name = raw_name)
+    mutate(
+      species_name = raw_name,
+      pipeline_class = case_when(
+        class == "Reptilia" & order == "Testudines" ~ "Testudines",
+        class == "Reptilia" & order == "Squamata"   ~ "Squamata",
+        TRUE                                         ~ class
+      )
+    )
 }
 
 # ── Prepare unresolved records ────────────────────────────
@@ -195,7 +207,12 @@ unresolved <- unresolved_raw %>%
             by = c("lookup_name" = "original_name")) %>%
   mutate(
     # Use thesaurus accepted_name when available; fall back to raw
-    species_name = coalesce(accepted_name, raw_name)
+    species_name = coalesce(accepted_name, raw_name),
+    pipeline_class = case_when(
+      class == "Reptilia" & order == "Testudines" ~ "Testudines",
+      class == "Reptilia" & order == "Squamata"   ~ "Squamata",
+      TRUE                                         ~ class
+    )
   ) %>%
   select(-raw_name, -lookup_name, -accepted_name)
 
@@ -253,9 +270,9 @@ if (nrow(bad_best) > 0) {
 # NOTE: unres_verts intentionally retains records where best is NA / "-";
 # they are the source of the "archipelago" column in the output tables.
 vertebrates  <- specimens  %>%
-  filter(class %in% TARGET_CLASSES) %>%
+  filter(pipeline_class %in% TARGET_CLASSES) %>%
   filter(!is.na(best) & best != "" & best != "-")
-unres_verts  <- unresolved %>% filter(class %in% TARGET_CLASSES)
+unres_verts  <- unresolved %>% filter(pipeline_class %in% TARGET_CLASSES)
 
 cat(sprintf("Island-resolved vertebrate records : %d\n", nrow(vertebrates)))
 cat(sprintf("Unresolved vertebrate records      : %d\n\n", nrow(unres_verts)))
@@ -293,7 +310,7 @@ for (cls in TARGET_CLASSES) {
   cat("Processing:", cls, "\n")
 
   # ── Island-resolved data for this class ──────────────────
-  class_data <- vertebrates %>% filter(class == cls)
+  class_data <- vertebrates %>% filter(pipeline_class == cls)
 
   if (REQUIRE_SPECIES) {
     n_before   <- nrow(class_data)
@@ -306,7 +323,7 @@ for (cls in TARGET_CLASSES) {
   }
 
   # ── Unresolved (archipelago-level) data for this class ───
-  arch_data <- unres_verts %>% filter(class == cls)
+  arch_data <- unres_verts %>% filter(pipeline_class == cls)
 
   if (REQUIRE_SPECIES)
     arch_data <- arch_data %>% filter(!is.na(species_name))

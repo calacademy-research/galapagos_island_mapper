@@ -2,7 +2,7 @@
 
 **Project:** `galapagos_island_mapper`  
 **Maintainer:** Jack Dumbacher — jdumbacher@calacademy.org  
-**Last updated:** 2026-05-27 (session 7)  
+**Last updated:** 2026-09-11 (session 8)  
 
 ---
 
@@ -391,7 +391,7 @@ The same genus lookup powers **genus-only upgrades**: if `species` is blank but 
 | `island_mismatch_ambiguous` | Not expected on island; multiple congeneric alternatives |
 | `island_mismatch_unresolved` | Not expected on island; no congeneric in CDF for this island |
 | `not_in_thesaurus` | Name not in thesaurus (uncommon visitor, very recent description) |
-| `class_not_targeted` | Class outside TARGET_CLASSES; no refinement attempted |
+| `class_not_targeted` | Class outside TARGET_CLASSES (after `pipeline_class` normalization); no refinement attempted |
 | `no_name` | Record has no usable identification |
 
 ### Design principles
@@ -428,7 +428,11 @@ The name resolver matches "Santiago" within "Morona-Santiago" (a mainland provin
 ### 4. `best == ""` gap in Step 1 filter
 The Step 1 filter `filter(best != "-", !is.na(best))` would pass records where `best` is an empty string `""`. Although `analyze.py` should never write `""` (it uses `best.loc or "-"`), the filter has been updated to also check `best != ""` as a defensive measure.
 
-### 5. ~~`species_by_island.R` does not filter on `best`~~ (resolved 2026-05-20)
+### 5. GBIF `class` field instability across re-indexing events (resolved 2026-09-11)
+
+GBIF re-indexes datasets periodically, and re-indexing can change the value of the `class` field for reptile records. The CAS Herpetology dataset was re-crawled on 2026-09-07 with `class = "Reptilia"` (standard Linnaean hierarchy) rather than `class = "Testudines"` (order-level class used in earlier indexing). Both `refine_taxonomy.R` and `species_by_island.R` now compute a `pipeline_class` column that normalizes `Reptilia` records by their `order` field before applying `TARGET_CLASSES` filtering, making the pipeline resilient to future re-indexing changes of this type. If a future GBIF re-index causes an unexpected drop in tortoise or squamate record counts, check whether `class` values have changed in the input file.
+
+### 6. ~~`species_by_island.R` does not filter on `best`~~ (resolved 2026-05-20)
 The `vertebrates` dataset in `species_by_island.R` now explicitly filters out records where `best` is NA, empty, or `"-"`, as a defensive guard against stale or mixed input files. This is redundant with `gbif_ecuador_download.R` Step 1 for freshly generated input, but prevents silent contamination if an older specimens file is accidentally used. The best-NA diagnostic block remains in place to log any upstream gaps.
 
 ---
@@ -469,6 +473,7 @@ The `vertebrates` dataset in `species_by_island.R` now explicitly filters out re
 | 2026-05-21 | `c676b51` | Add output sanity check to `gbif_ecuador_download.R`: before `write_tsv`, warns if any record in `galapagos_specimens` has a missing/empty/`"-"` `best` value |
 | 2026-05-21 | `8ec27fd` | Fix empty-string `best` gap: add `best != ""` to all filter instances in `gbif_ecuador_download.R` (Step 1, Step 3 pool, unresolved filter, and resolved-count diagnostic) |
 | 2026-05-21 | `3cf6288` | Add `galapagos_all.tsv` combined output to `gbif_ecuador_download.R`: `bind_rows` of `galapagos_specimens` + `galapagos_unresolved` (with `best = NA`), enabling analyses that need the complete confirmed-Galápagos specimen list regardless of island resolution; add `results.tsv` diagnostic for `best = ""` |
+| 2026-09-11 | *(session 8)* | **Fix `pipeline_class` normalization for GBIF Reptilia records.** GBIF re-indexed the CAS (California Academy of Sciences) Herpetology dataset in September 2026 and changed `class` from `"Testudines"` to `"Reptilia"` (with `order = "Testudines"`) for tortoise records, following standard Linnaean hierarchy. This caused all CAS tortoise records to be silently excluded by `TARGET_CLASSES` filters in both `refine_taxonomy.R` (assigned `taxonomy_note = "class_not_targeted"`) and `species_by_island.R` (dropped before table building). Fix: add a `pipeline_class` column in both scripts that maps `class = "Reptilia"` records to their order name (`"Testudines"` or `"Squamata"`) before any TARGET_CLASSES filtering. All downstream filters now use `pipeline_class` instead of `class`. The `pipeline_class` column is retained in `*_refined.tsv` output files for transparency. |
 
 ---
 
@@ -505,4 +510,4 @@ To check pipeline health without a full re-run, look for:
 
 ---
 
-*Last updated 2026-05-27. For questions, contact Jack Dumbacher (jdumbacher@calacademy.org).*
+*Last updated 2026-09-11. For questions, contact Jack Dumbacher (jdumbacher@calacademy.org).*

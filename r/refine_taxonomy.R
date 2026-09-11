@@ -184,6 +184,18 @@ for (in_name in names(SPECIMEN_FILES)) {
                         show_col_types = FALSE)
   cat(sprintf("  Loaded %d records.\n", nrow(specimens)))
 
+  # Normalize class: GBIF sometimes classifies records as "Reptilia"
+  # with order "Testudines" or "Squamata".  pipeline_class maps these
+  # to the order name so they pass the TARGET_CLASSES filter.
+  specimens <- specimens %>%
+    mutate(
+      pipeline_class = case_when(
+        class == "Reptilia" & order == "Testudines" ~ "Testudines",
+        class == "Reptilia" & order == "Squamata"   ~ "Squamata",
+        TRUE                                         ~ class
+      )
+    )
+
   # ---- Step A: Compute lookup key ----------------------
   # Same priority order used in build_galapagos_thesaurus.R
   # Section 1 so that join keys align with thesaurus entries.
@@ -202,7 +214,7 @@ for (in_name in names(SPECIMEN_FILES)) {
         !is.na(scientificName) & scientificName != "" ~ scientificName,
         TRUE ~ NA_character_
       ),
-      is_genus_only = class %in% TARGET_CLASSES &
+      is_genus_only = pipeline_class %in% TARGET_CLASSES &
                       (is.na(species) | species == "") &
                       !is.na(coalesce(genus, word(scientificName, 1))),
       lookup_genus  = if_else(
@@ -212,7 +224,7 @@ for (in_name in names(SPECIMEN_FILES)) {
       )
     )
 
-  target_recs <- sum(specimens$class %in% TARGET_CLASSES, na.rm = TRUE)
+  target_recs <- sum(specimens$pipeline_class %in% TARGET_CLASSES, na.rm = TRUE)
   genus_recs  <- sum(specimens$is_genus_only, na.rm = TRUE)
   cat(sprintf("  Target-class records: %d  |  Genus-only: %d\n",
               target_recs, genus_recs))
@@ -285,7 +297,7 @@ for (in_name in names(SPECIMEN_FILES)) {
 
       # Base note from name-level resolution alone
       name_note = case_when(
-        !class %in% TARGET_CLASSES              ~ "class_not_targeted",
+        !pipeline_class %in% TARGET_CLASSES      ~ "class_not_targeted",
         is.na(lookup_name)                      ~ "no_name",
         is.na(thes_accepted)                    ~ "not_in_thesaurus",
         coalesce(override_applied, FALSE)       ~ "manual_override",
@@ -296,7 +308,7 @@ for (in_name in names(SPECIMEN_FILES)) {
       # Final accepted name
       accepted_name = case_when(
         # Non-target classes: preserve original lookup name unchanged
-        !class %in% TARGET_CLASSES ~ coalesce(lookup_name, NA_character_),
+        !pipeline_class %in% TARGET_CLASSES ~ coalesce(lookup_name, NA_character_),
         # Genus-only: upgrade to species if exactly 1 expected
         is_genus_only & n_candidates == 1 ~ sole_candidate,
         # Genus-only unresolved: store as "Genus sp." for clarity
@@ -341,7 +353,7 @@ for (in_name in names(SPECIMEN_FILES)) {
 
   cat("\n  taxonomy_note breakdown (target classes only):\n")
   note_summary <- specimens %>%
-    filter(class %in% TARGET_CLASSES) %>%
+    filter(pipeline_class %in% TARGET_CLASSES) %>%
     count(taxonomy_note, sort = TRUE) %>%
     mutate(pct = sprintf("%5.1f%%", 100 * n / sum(n)))
   print(note_summary, n = 20)
